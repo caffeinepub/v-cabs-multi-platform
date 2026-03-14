@@ -10,51 +10,49 @@ interface LoginScreenProps {
   onLogin: (user: User) => void;
 }
 
-const DEMO_CREDENTIALS: Record<Role, { username: string; password: string }> = {
-  rider: { username: "rider@vcabs.com", password: "rider123" },
-  driver: { username: "driver@vcabs.com", password: "driver123" },
-  admin: { username: "admin@vcabs.com", password: "admin123" },
-};
-
-const ROLE_MAP: Record<string, Role> = {
-  "rider@vcabs.com": "rider",
-  "driver@vcabs.com": "driver",
-  "admin@vcabs.com": "admin",
-};
-
 export default function LoginScreen({ onLogin }: LoginScreenProps) {
   const [role, setRole] = useState<Role>("rider");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [showSignup, setShowSignup] = useState(false);
+  const [signupName, setSignupName] = useState("");
+  const [signupPhone, setSignupPhone] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+  const [signupError, setSignupError] = useState("");
 
   const handleLogin = () => {
-    const creds = DEMO_CREDENTIALS[role];
-    if (username === creds.username && password === creds.password) {
-      const userRole = ROLE_MAP[username];
-      let user: User | undefined;
-      if (userRole === "admin") {
-        user = seedUsers.find((u) => u.role === "admin");
-      } else if (userRole === "rider") {
-        user = seedUsers.find(
-          (u) => u.role === "rider" && u.status === "active",
-        );
-      } else {
-        user = seedUsers.find(
-          (u) => u.role === "driver" && u.status === "active",
-        );
-      }
-      if (user) onLogin(user);
+    // Match against seedUsers by phone and password
+    const user = seedUsers.find(
+      (u) =>
+        u.role === role &&
+        (u.phone === username || u.email === username) &&
+        u.password === password,
+    );
+    if (user) {
+      onLogin(user);
     } else {
-      setError("Invalid credentials. Use the demo credentials below.");
+      setError(
+        "Invalid credentials. Please check your mobile number and password.",
+      );
     }
   };
 
-  const fillDemo = () => {
-    const creds = DEMO_CREDENTIALS[role];
-    setUsername(creds.username);
-    setPassword(creds.password);
-    setError("");
+  const handleSignup = () => {
+    if (!signupName.trim() || !signupPhone.trim() || !signupPassword.trim()) {
+      setSignupError("All fields are required.");
+      return;
+    }
+    if (signupPhone.length < 10) {
+      setSignupError("Enter a valid 10-digit mobile number.");
+      return;
+    }
+    // In a real app this would call the backend; for now simulate success
+    setShowSignup(false);
+    setUsername(signupPhone);
+    setPassword(signupPassword);
+    setSignupError("");
+    setError("Account created! Please sign in with your credentials.");
   };
 
   return (
@@ -86,110 +84,214 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
         </CardHeader>
 
         <CardContent className="px-8 pb-8 space-y-6">
-          {/* Role Tabs */}
-          <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-widest text-muted-foreground">
-              Sign in as
-            </Label>
-            <div className="grid grid-cols-3 gap-1 bg-muted p-1 rounded-lg">
-              {(["rider", "driver", "admin"] as Role[]).map((r) => (
+          {!showSignup ? (
+            <>
+              {/* Role Tabs */}
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Sign in as
+                </Label>
+                <div className="grid grid-cols-3 gap-1 bg-muted p-1 rounded-lg">
+                  {(["rider", "driver", "admin"] as Role[]).map((r) => (
+                    <button
+                      type="button"
+                      key={r}
+                      data-ocid="login.role.tab"
+                      onClick={() => {
+                        setRole(r);
+                        setUsername("");
+                        setPassword("");
+                        setError("");
+                      }}
+                      className={`py-2 px-3 rounded-md text-sm font-semibold transition-all capitalize ${
+                        role === r
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Credentials */}
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="username" className="text-sm font-medium">
+                    Mobile Number
+                  </Label>
+                  <Input
+                    id="username"
+                    data-ocid="login.username.input"
+                    type="text"
+                    placeholder="Enter your mobile number"
+                    value={username}
+                    onChange={(e) => {
+                      setUsername(e.target.value);
+                      setError("");
+                    }}
+                    className="h-10"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="password" className="text-sm font-medium">
+                    Password
+                  </Label>
+                  <Input
+                    id="password"
+                    data-ocid="login.password.input"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setError("");
+                    }}
+                    className="h-10"
+                    onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <p
+                  data-ocid="login.error_state"
+                  className="text-destructive text-sm text-center"
+                >
+                  {error}
+                </p>
+              )}
+
+              <Button
+                data-ocid="login.submit_button"
+                onClick={handleLogin}
+                className="w-full h-11 bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors"
+              >
+                Sign In
+              </Button>
+
+              <p className="text-center text-sm text-muted-foreground">
+                New to V Cabs?{" "}
                 <button
                   type="button"
-                  key={r}
-                  data-ocid="login.role.tab"
+                  data-ocid="login.signup.button"
                   onClick={() => {
-                    setRole(r);
-                    setUsername("");
-                    setPassword("");
+                    setShowSignup(true);
                     setError("");
                   }}
-                  className={`py-2 px-3 rounded-md text-sm font-semibold transition-all capitalize ${
-                    role === r
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  className="text-primary font-semibold hover:underline"
                 >
-                  {r}
+                  Sign Up
                 </button>
-              ))}
-            </div>
-          </div>
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1 mb-2">
+                <h2 className="text-xl font-bold text-foreground">
+                  Create Account
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Sign up as a new {role}
+                </p>
+              </div>
 
-          {/* Credentials */}
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="username" className="text-sm font-medium">
-                Email
-              </Label>
-              <Input
-                id="username"
-                data-ocid="login.username.input"
-                type="email"
-                placeholder={`${role}@vcabs.com`}
-                value={username}
-                onChange={(e) => {
-                  setUsername(e.target.value);
-                  setError("");
-                }}
-                className="h-10"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-sm font-medium">
-                Password
-              </Label>
-              <Input
-                id="password"
-                data-ocid="login.password.input"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  setError("");
-                }}
-                className="h-10"
-                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-              />
-            </div>
-          </div>
+              {/* Role Tabs in signup */}
+              <div className="grid grid-cols-2 gap-1 bg-muted p-1 rounded-lg">
+                {(["rider", "driver"] as Role[]).map((r) => (
+                  <button
+                    type="button"
+                    key={r}
+                    onClick={() => setRole(r)}
+                    className={`py-2 px-3 rounded-md text-sm font-semibold transition-all capitalize ${
+                      role === r
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
 
-          {error && (
-            <p
-              data-ocid="login.error_state"
-              className="text-destructive text-sm text-center"
-            >
-              {error}
-            </p>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">Full Name</Label>
+                  <Input
+                    data-ocid="signup.name.input"
+                    placeholder="Your full name"
+                    value={signupName}
+                    onChange={(e) => {
+                      setSignupName(e.target.value);
+                      setSignupError("");
+                    }}
+                    className="h-10"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">Mobile Number</Label>
+                  <Input
+                    data-ocid="signup.phone.input"
+                    placeholder="10-digit mobile number"
+                    value={signupPhone}
+                    onChange={(e) => {
+                      setSignupPhone(e.target.value);
+                      setSignupError("");
+                    }}
+                    className="h-10"
+                    type="tel"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">Password</Label>
+                  <Input
+                    data-ocid="signup.password.input"
+                    placeholder="Create a password"
+                    value={signupPassword}
+                    onChange={(e) => {
+                      setSignupPassword(e.target.value);
+                      setSignupError("");
+                    }}
+                    className="h-10"
+                    type="password"
+                  />
+                </div>
+              </div>
+
+              {signupError && (
+                <p
+                  data-ocid="signup.error_state"
+                  className="text-destructive text-sm text-center"
+                >
+                  {signupError}
+                </p>
+              )}
+
+              <Button
+                data-ocid="signup.submit_button"
+                onClick={handleSignup}
+                className="w-full h-11 bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors"
+              >
+                Create Account
+              </Button>
+
+              <p className="text-center text-sm text-muted-foreground">
+                Already have an account?{" "}
+                <button
+                  type="button"
+                  data-ocid="signup.back_to_login.button"
+                  onClick={() => {
+                    setShowSignup(false);
+                    setSignupError("");
+                  }}
+                  className="text-primary font-semibold hover:underline"
+                >
+                  Sign In
+                </button>
+              </p>
+            </>
           )}
-
-          <Button
-            data-ocid="login.submit_button"
-            onClick={handleLogin}
-            className="w-full h-11 bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors"
-          >
-            Sign In
-          </Button>
-
-          {/* Demo hint */}
-          <div className="rounded-lg bg-accent/60 p-4 space-y-1">
-            <p className="text-xs font-semibold text-accent-foreground uppercase tracking-wider">
-              Demo Credentials — {role}
-            </p>
-            <p className="text-xs text-muted-foreground font-mono">
-              {DEMO_CREDENTIALS[role].username}
-            </p>
-            <p className="text-xs text-muted-foreground font-mono">
-              {DEMO_CREDENTIALS[role].password}
-            </p>
-            <button
-              type="button"
-              onClick={fillDemo}
-              className="text-xs text-primary hover:underline font-medium mt-1"
-            >
-              Click to fill →
-            </button>
-          </div>
         </CardContent>
       </Card>
     </div>
