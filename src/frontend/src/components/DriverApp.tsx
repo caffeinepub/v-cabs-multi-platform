@@ -22,8 +22,10 @@ import {
   MapPin,
   Menu,
   MessageCircle,
+  Smartphone,
   Sparkles,
   Star,
+  Trash2,
   Wifi,
   WifiOff,
   XCircle,
@@ -94,6 +96,10 @@ export default function DriverApp({
     null,
   );
 
+  // UPI Payment state
+  const [upiList, setUpiList] = useState<string[]>(["9999000003@okbizaxis"]);
+  const [newUpi, setNewUpi] = useState("");
+
   // Document state
   const [docIdProof, setDocIdProof] = useState(
     currentUser.documents?.idProof ?? "",
@@ -140,6 +146,30 @@ export default function DriverApp({
     setSubscribedPlan(null);
     setSubscriptionExpiry(null);
     toast.success("Subscription cancelled.");
+  };
+
+  const addUpi = () => {
+    const trimmed = newUpi.trim();
+    if (!trimmed) {
+      toast.error("Please enter a UPI ID.");
+      return;
+    }
+    if (upiList.includes(trimmed)) {
+      toast.error("This UPI ID is already added.");
+      return;
+    }
+    setUpiList((prev) => [...prev, trimmed]);
+    setNewUpi("");
+    toast.success("UPI added!");
+  };
+
+  const deleteUpi = (upi: string) => {
+    if (upiList.length === 1) {
+      toast.error("At least one UPI is required.");
+      return;
+    }
+    setUpiList((prev) => prev.filter((u) => u !== upi));
+    toast.success("UPI removed.");
   };
 
   const availableRides = rides.filter((r) => r.status === "pending");
@@ -871,6 +901,74 @@ export default function DriverApp({
                 </CardContent>
               </Card>
             </div>
+
+            {/* UPI Payment Methods */}
+            <Card className="border-border shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-primary" />
+                  UPI Payment Methods
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Manage UPI IDs used for subscription payments
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {/* UPI List */}
+                <div className="space-y-2">
+                  {upiList.map((upi, idx) => (
+                    <div
+                      key={upi}
+                      data-ocid={`driver.subscription.upi.item.${idx + 1}`}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Smartphone className="w-4 h-4 text-primary shrink-0" />
+                        <span className="text-sm font-mono truncate">
+                          {upi}
+                        </span>
+                        {idx === 0 && (
+                          <Badge className="ml-1 bg-primary/15 text-primary border border-primary/30 text-[10px] px-1.5 py-0 shrink-0">
+                            Default
+                          </Badge>
+                        )}
+                      </div>
+                      <button
+                        data-ocid={`driver.subscription.upi.delete_button.${idx + 1}`}
+                        type="button"
+                        onClick={() => deleteUpi(upi)}
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
+                        title="Remove UPI"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add New UPI */}
+                <div className="flex gap-2 pt-1">
+                  <input
+                    data-ocid="driver.subscription.upi.input"
+                    type="text"
+                    placeholder="Enter UPI ID (e.g. name@bank)"
+                    value={newUpi}
+                    onChange={(e) => setNewUpi(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addUpi()}
+                    className="flex-1 border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  <Button
+                    data-ocid="driver.subscription.upi.add_button"
+                    type="button"
+                    onClick={addUpi}
+                    size="sm"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 shrink-0"
+                  >
+                    Add UPI
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
 
             <p className="text-xs text-center text-muted-foreground pb-2">
               Payments in ₹ (INR). Plans auto-renew. Cancel anytime.
