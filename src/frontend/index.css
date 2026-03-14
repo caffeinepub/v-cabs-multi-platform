@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap');
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+
+    /* V Cabs: amber/white/dark theme */
+    --background: 0.98 0.003 95;
+    --foreground: 0.18 0.02 260;
+    --card: 1 0 0;
+    --card-foreground: 0.18 0.02 260;
+    --popover: 1 0 0;
+    --popover-foreground: 0.18 0.02 260;
+
+    /* Amber primary */
+    --primary: 0.75 0.18 65;
+    --primary-foreground: 0.12 0.02 30;
+
+    --secondary: 0.95 0.01 90;
+    --secondary-foreground: 0.25 0.03 260;
+
+    --muted: 0.94 0.005 90;
+    --muted-foreground: 0.52 0.02 260;
+
+    --accent: 0.95 0.04 80;
+    --accent-foreground: 0.25 0.04 40;
+
+    --destructive: 0.58 0.22 27;
+    --destructive-foreground: 1 0 0;
+
+    --border: 0.9 0.01 90;
+    --input: 0.9 0.01 90;
+    --ring: 0.75 0.18 65;
+
+    --chart-1: 0.75 0.18 65;
+    --chart-2: 0.62 0.15 145;
+    --chart-3: 0.55 0.17 260;
+    --chart-4: 0.68 0.2 30;
+    --chart-5: 0.72 0.16 200;
+
+    /* Sidebar: dark charcoal */
+    --sidebar: 0.16 0.02 255;
+    --sidebar-foreground: 0.88 0.01 90;
+    --sidebar-primary: 0.75 0.18 65;
+    --sidebar-primary-foreground: 0.12 0.02 30;
+    --sidebar-accent: 0.22 0.025 255;
+    --sidebar-accent-foreground: 0.88 0.01 90;
+    --sidebar-border: 0.25 0.02 255;
+    --sidebar-ring: 0.75 0.18 65;
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Bricolage Grotesque', sans-serif;
+  }
+}
