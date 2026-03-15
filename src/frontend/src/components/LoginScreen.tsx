@@ -3,14 +3,19 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
-import { seedUsers } from "../data/seedData";
 import type { Role, User } from "../types/vcabs";
 
 interface LoginScreenProps {
+  users: User[];
   onLogin: (user: User) => void;
+  onSignup: (user: User) => void;
 }
 
-export default function LoginScreen({ onLogin }: LoginScreenProps) {
+export default function LoginScreen({
+  users,
+  onLogin,
+  onSignup,
+}: LoginScreenProps) {
   const [role, setRole] = useState<Role>("rider");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -22,14 +27,18 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
   const [signupError, setSignupError] = useState("");
 
   const handleLogin = () => {
-    // Match against seedUsers by phone and password
-    const user = seedUsers.find(
+    // Fix: check against live users list (not static seedUsers)
+    const user = users.find(
       (u) =>
         u.role === role &&
         (u.phone === username || u.email === username) &&
         u.password === password,
     );
     if (user) {
+      if (user.status === "suspended") {
+        setError("Your account has been suspended. Please contact support.");
+        return;
+      }
       onLogin(user);
     } else {
       setError(
@@ -47,12 +56,30 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
       setSignupError("Enter a valid 10-digit mobile number.");
       return;
     }
-    // In a real app this would call the backend; for now simulate success
+    // Check if phone already registered
+    if (users.some((u) => u.phone === signupPhone)) {
+      setSignupError("This mobile number is already registered.");
+      return;
+    }
+    // Fix: create user and add to live users list so login works immediately
+    const newUser: User = {
+      id: `u_${Date.now()}`,
+      name: signupName.trim(),
+      phone: signupPhone.trim(),
+      password: signupPassword.trim(),
+      role: role as "rider" | "driver",
+      status: "active",
+      vCoins: 100,
+      rating: 5.0,
+      savedAddresses: {},
+    };
+    onSignup(newUser);
+    // Auto-fill login form and show success message
     setShowSignup(false);
-    setUsername(signupPhone);
-    setPassword(signupPassword);
+    setUsername(signupPhone.trim());
+    setPassword(signupPassword.trim());
     setSignupError("");
-    setError("Account created! Please sign in with your credentials.");
+    setError("Account created successfully! You can now sign in.");
   };
 
   return (
@@ -157,7 +184,11 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
               {error && (
                 <p
                   data-ocid="login.error_state"
-                  className="text-destructive text-sm text-center"
+                  className={`text-sm text-center ${
+                    error.includes("created")
+                      ? "text-green-600"
+                      : "text-destructive"
+                  }`}
                 >
                   {error}
                 </p>

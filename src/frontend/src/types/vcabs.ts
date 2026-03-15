@@ -71,6 +71,30 @@ export interface SavedLocation {
   city: string;
 }
 
+export interface VehicleRate {
+  id: string;
+  name: string;
+  icon: string;
+  multiplier: number;
+  baseRate: number;
+}
+
+export interface WeightSurcharge {
+  id: string;
+  label: string;
+  multiplier: number;
+}
+
+export interface RateConfig {
+  rideRates: VehicleRate[];
+  parcelRates: VehicleRate[];
+  weightSurcharges: WeightSurcharge[];
+  peakEnabled: boolean;
+  peakMultiplier: number;
+  nightMultiplier: number;
+  vCoinRate: number;
+}
+
 export interface AppState {
   users: User[];
   rides: Ride[];

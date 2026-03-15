@@ -24,7 +24,13 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { seedUsers } from "../data/seedData";
-import type { Ride, SOSEvent, SavedLocation, User } from "../types/vcabs";
+import type {
+  RateConfig,
+  Ride,
+  SOSEvent,
+  SavedLocation,
+  User,
+} from "../types/vcabs";
 import { formatFare } from "../utils/fareHelper";
 import DocumentUpload from "./DocumentUpload";
 import HelplineChat from "./HelplineChat";
@@ -41,6 +47,7 @@ interface RiderAppProps {
   onAddSOS: (event: SOSEvent) => void;
   savedLocations: SavedLocation[];
   onLogout: () => void;
+  rateConfig?: RateConfig;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -168,6 +175,7 @@ export default function RiderApp({
   onAddSOS,
   savedLocations,
   onLogout,
+  rateConfig,
 }: RiderAppProps) {
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");
@@ -229,8 +237,13 @@ export default function RiderApp({
   };
 
   const getFareForType = (baseFare: number, typeId: string) => {
+    // Use admin-configured multiplier if available, else fall back to RIDE_TYPES
+    const rateMultiplier = rateConfig?.rideRates.find(
+      (r) => r.id === typeId,
+    )?.multiplier;
     const type = RIDE_TYPES.find((r) => r.id === typeId);
-    return Math.round(baseFare * (type?.multiplier ?? 1));
+    const multiplier = rateMultiplier ?? type?.multiplier ?? 1;
+    return Math.round(baseFare * multiplier);
   };
 
   const getParcelFareForType = (
@@ -238,11 +251,17 @@ export default function RiderApp({
     typeId: string,
     weightId: string,
   ) => {
+    const rateMultiplier = rateConfig?.parcelRates.find(
+      (p) => p.id === typeId,
+    )?.multiplier;
     const type = PARCEL_TYPES.find((p) => p.id === typeId);
+    const weightMultiplier = rateConfig?.weightSurcharges.find(
+      (w) => w.id === weightId,
+    )?.multiplier;
     const weight = WEIGHT_OPTIONS.find((w) => w.id === weightId);
-    return Math.round(
-      baseFare * (type?.multiplier ?? 1) * (weight?.multiplier ?? 1),
-    );
+    const m = rateMultiplier ?? type?.multiplier ?? 1;
+    const wm = weightMultiplier ?? weight?.multiplier ?? 1;
+    return Math.round(baseFare * m * wm);
   };
 
   const bookRide = () => {

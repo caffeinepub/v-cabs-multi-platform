@@ -41,7 +41,13 @@ import {
 import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { AuditLog, Ride, SOSEvent, User } from "../types/vcabs";
+import type {
+  AuditLog,
+  RateConfig,
+  Ride,
+  SOSEvent,
+  User,
+} from "../types/vcabs";
 
 const INDIAN_CITIES = [
   "Mumbai",
@@ -75,6 +81,8 @@ interface AdminDashboardProps {
   onToggleUserStatus: (userId: string) => void;
   onAddUser: (user: User) => void;
   onDeleteUser: (userId: string) => void;
+  rateConfig: RateConfig;
+  onSaveRates: (config: RateConfig) => void;
   onLogout: () => void;
 }
 
@@ -88,22 +96,6 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "bg-gray-100 text-gray-600",
 };
 
-const VEHICLE_DEFAULTS = [
-  { id: "bike", name: "Bike", icon: "🏍️", multiplier: 1.0, baseRate: 8 },
-  { id: "auto", name: "Auto", icon: "🛺", multiplier: 1.2, baseRate: 12 },
-  { id: "cab", name: "Cab", icon: "🚕", multiplier: 1.5, baseRate: 15 },
-  { id: "cab_ac", name: "Cab A/c", icon: "❄️", multiplier: 1.8, baseRate: 18 },
-  { id: "sedan", name: "Sedan", icon: "🚗", multiplier: 2.0, baseRate: 20 },
-  { id: "xl", name: "Premium XL", icon: "🚐", multiplier: 2.5, baseRate: 25 },
-];
-
-const WEIGHT_DEFAULTS = [
-  { id: "light", label: "Light (<1 kg)", multiplier: 1.0 },
-  { id: "medium", label: "Medium (1–5 kg)", multiplier: 1.3 },
-  { id: "heavy", label: "Heavy (5–20 kg)", multiplier: 1.7 },
-  { id: "oversized", label: "Oversized (20 kg+)", multiplier: 2.2 },
-];
-
 export default function AdminDashboard({
   currentUser,
   users,
@@ -113,6 +105,8 @@ export default function AdminDashboard({
   onToggleUserStatus,
   onAddUser,
   onDeleteUser,
+  rateConfig,
+  onSaveRates,
   onLogout,
 }: AdminDashboardProps) {
   const [page, setPage] = useState<AdminPage>("dashboard");
@@ -124,20 +118,24 @@ export default function AdminDashboard({
   const [newUserCity, setNewUserCity] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
 
-  // Rate management state
+  // Rate management state - initialized from shared rateConfig prop
   const [rideRates, setRideRates] = useState(
-    VEHICLE_DEFAULTS.map((v) => ({ ...v })),
+    rateConfig.rideRates.map((v) => ({ ...v })),
   );
   const [parcelRates, setParcelRates] = useState(
-    VEHICLE_DEFAULTS.map((v) => ({ ...v })),
+    rateConfig.parcelRates.map((v) => ({ ...v })),
   );
   const [weightSurcharges, setWeightSurcharges] = useState(
-    WEIGHT_DEFAULTS.map((w) => ({ ...w })),
+    rateConfig.weightSurcharges.map((w) => ({ ...w })),
   );
-  const [peakEnabled, setPeakEnabled] = useState(false);
-  const [peakMultiplier, setPeakMultiplier] = useState("1.5");
-  const [nightMultiplier, setNightMultiplier] = useState("1.2");
-  const [vCoinRate, setVCoinRate] = useState("5");
+  const [peakEnabled, setPeakEnabled] = useState(rateConfig.peakEnabled);
+  const [peakMultiplier, setPeakMultiplier] = useState(
+    String(rateConfig.peakMultiplier),
+  );
+  const [nightMultiplier, setNightMultiplier] = useState(
+    String(rateConfig.nightMultiplier),
+  );
+  const [vCoinRate, setVCoinRate] = useState(String(rateConfig.vCoinRate));
 
   const totalRevenue = rides
     .filter((r) => r.status === "completed")
@@ -187,7 +185,16 @@ export default function AdminDashboard({
     users.find((u) => u.id === id)?.name ?? id;
 
   const saveRates = () => {
-    toast.success("Rates updated successfully!");
+    onSaveRates({
+      rideRates,
+      parcelRates,
+      weightSurcharges,
+      peakEnabled,
+      peakMultiplier: Number.parseFloat(peakMultiplier) || 1.5,
+      nightMultiplier: Number.parseFloat(nightMultiplier) || 1.2,
+      vCoinRate: Number.parseFloat(vCoinRate) || 5,
+    });
+    toast.success("Rates saved and applied successfully!");
   };
 
   const handleAddUser = () => {

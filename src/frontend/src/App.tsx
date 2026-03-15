@@ -1,5 +1,5 @@
 import { Toaster } from "@/components/ui/sonner";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import AdminDashboard from "./components/AdminDashboard";
 import DriverApp from "./components/DriverApp";
@@ -13,22 +13,123 @@ import {
 } from "./data/seedData";
 import type {
   AuditLog,
+  RateConfig,
   Ride,
   SOSEvent,
   SavedLocation,
   User,
 } from "./types/vcabs";
 
+const DEFAULT_RATE_CONFIG: RateConfig = {
+  rideRates: [
+    { id: "bike", name: "Bike", icon: "🏍️", multiplier: 1.0, baseRate: 8 },
+    { id: "auto", name: "Auto", icon: "🛺", multiplier: 1.2, baseRate: 12 },
+    { id: "cab", name: "Cab", icon: "🚕", multiplier: 1.5, baseRate: 15 },
+    { id: "cab_ac", name: "Cab A/c", icon: "❄️", multiplier: 1.8, baseRate: 18 },
+    { id: "sedan", name: "Sedan", icon: "🚗", multiplier: 2.0, baseRate: 20 },
+    { id: "xl", name: "Premium XL", icon: "🚐", multiplier: 2.5, baseRate: 25 },
+  ],
+  parcelRates: [
+    { id: "bike", name: "Bike", icon: "🏍️", multiplier: 1.0, baseRate: 8 },
+    { id: "auto", name: "Auto", icon: "🛺", multiplier: 1.2, baseRate: 12 },
+    { id: "cab", name: "Cab", icon: "🚕", multiplier: 1.5, baseRate: 15 },
+    { id: "cab_ac", name: "Cab A/c", icon: "❄️", multiplier: 1.8, baseRate: 18 },
+    { id: "sedan", name: "Sedan", icon: "🚗", multiplier: 2.0, baseRate: 20 },
+    { id: "xl", name: "Premium XL", icon: "🚐", multiplier: 2.5, baseRate: 25 },
+  ],
+  weightSurcharges: [
+    { id: "light", label: "Light (<1 kg)", multiplier: 1.0 },
+    { id: "medium", label: "Medium (1–5 kg)", multiplier: 1.3 },
+    { id: "heavy", label: "Heavy (5–20 kg)", multiplier: 1.7 },
+    { id: "oversized", label: "Oversized (20 kg+)", multiplier: 2.2 },
+  ],
+  peakEnabled: false,
+  peakMultiplier: 1.5,
+  nightMultiplier: 1.2,
+  vCoinRate: 5,
+};
+
+function loadFromStorage<T>(key: string, fallback: T): T {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored) return JSON.parse(stored) as T;
+  } catch {}
+  return fallback;
+}
+
+function loadUsers(): User[] {
+  try {
+    const stored = localStorage.getItem("vcabs_users");
+    if (stored) {
+      const parsed: User[] = JSON.parse(stored);
+      // Always ensure seed users are present with their passwords intact
+      const storedMap = new Map(parsed.map((u) => [u.id, u]));
+      const merged = seedUsers.map((su) => storedMap.get(su.id) ?? su);
+      // Append any extra users not in seed (e.g. new signups)
+      const seedIds = new Set(seedUsers.map((u) => u.id));
+      const extras = parsed.filter((u) => !seedIds.has(u.id));
+      return [...merged, ...extras];
+    }
+  } catch {}
+  return seedUsers;
+}
+
+function loadRides(): Ride[] {
+  const stored = loadFromStorage<Ride[] | null>("vcabs_rides", null);
+  if (stored) return stored;
+  return seedRides;
+}
+
+function loadAuditLogs(): AuditLog[] {
+  const stored = loadFromStorage<AuditLog[] | null>("vcabs_audit", null);
+  if (stored) return stored;
+  return seedAuditLogs;
+}
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [users, setUsers] = useState<User[]>(seedUsers);
-  const [rides, setRides] = useState<Ride[]>(seedRides);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(seedAuditLogs);
-  const [sosEvents, setSosEvents] = useState<SOSEvent[]>([]);
+  const [users, setUsers] = useState<User[]>(loadUsers);
+  const [rides, setRides] = useState<Ride[]>(loadRides);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(loadAuditLogs);
+  const [sosEvents, setSosEvents] = useState<SOSEvent[]>(
+    loadFromStorage<SOSEvent[]>("vcabs_sos", []),
+  );
   const [savedLocations] = useState<SavedLocation[]>(seedSavedLocations);
+  const [rateConfig, setRateConfig] = useState<RateConfig>(() =>
+    loadFromStorage<RateConfig>("vcabs_rates", DEFAULT_RATE_CONFIG),
+  );
 
-  const handleLogin = (user: User) => setCurrentUser(user);
+  // Persist all state changes to localStorage
+  useEffect(() => {
+    localStorage.setItem("vcabs_users", JSON.stringify(users));
+  }, [users]);
+
+  useEffect(() => {
+    localStorage.setItem("vcabs_rides", JSON.stringify(rides));
+  }, [rides]);
+
+  useEffect(() => {
+    localStorage.setItem("vcabs_audit", JSON.stringify(auditLogs));
+  }, [auditLogs]);
+
+  useEffect(() => {
+    localStorage.setItem("vcabs_sos", JSON.stringify(sosEvents));
+  }, [sosEvents]);
+
+  useEffect(() => {
+    localStorage.setItem("vcabs_rates", JSON.stringify(rateConfig));
+  }, [rateConfig]);
+
+  const handleLogin = (user: User) => {
+    // Always fetch latest version of user from state before logging in
+    const latest = users.find((u) => u.id === user.id) ?? user;
+    setCurrentUser(latest);
+  };
   const handleLogout = () => setCurrentUser(null);
+
+  const handleSignup = (newUser: User) => {
+    setUsers((prev) => [...prev, newUser]);
+  };
 
   const updateUser = (userId: string, updates: Partial<User>) => {
     setUsers((prev) =>
@@ -81,7 +182,9 @@ export default function App() {
       updateUser(userId, {
         status: user.status === "active" ? "suspended" : "active",
       });
-      const action = `${user.status === "active" ? "Suspended" : "Activated"} user ${user.name} (${userId})`;
+      const action = `${
+        user.status === "active" ? "Suspended" : "Activated"
+      } user ${user.name} (${userId})`;
       setAuditLogs((prev) => [
         {
           id: `a${Date.now()}`,
@@ -123,11 +226,28 @@ export default function App() {
     }
   };
 
+  const handleSaveRates = (config: RateConfig) => {
+    setRateConfig(config);
+    setAuditLogs((prev) => [
+      {
+        id: `a${Date.now()}`,
+        action: "Updated rate configuration",
+        actor: currentUser?.name ?? "admin",
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+  };
+
   return (
     <>
       <Toaster position="top-right" richColors />
       {!currentUser ? (
-        <LoginScreen onLogin={handleLogin} />
+        <LoginScreen
+          users={users}
+          onLogin={handleLogin}
+          onSignup={handleSignup}
+        />
       ) : currentUser.role === "rider" ? (
         <RiderApp
           currentUser={currentUser}
@@ -137,6 +257,7 @@ export default function App() {
           onAddSOS={addSOS}
           savedLocations={savedLocations}
           onLogout={handleLogout}
+          rateConfig={rateConfig}
         />
       ) : currentUser.role === "driver" ? (
         <DriverApp
@@ -155,9 +276,11 @@ export default function App() {
           rides={rides}
           auditLogs={auditLogs}
           sosEvents={sosEvents}
+          rateConfig={rateConfig}
           onToggleUserStatus={toggleUserStatus}
           onAddUser={addUser}
           onDeleteUser={deleteUser}
+          onSaveRates={handleSaveRates}
           onLogout={handleLogout}
         />
       )}
