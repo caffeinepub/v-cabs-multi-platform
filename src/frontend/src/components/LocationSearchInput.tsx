@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, MapPin, Navigation, Star, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { SavedLocation } from "../types/vcabs";
 import {
   type NominatimResult,
@@ -41,6 +42,7 @@ export default function LocationSearchInput({
   const [saveName, setSaveName] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const autoDetectedRef = useRef(false);
 
   const cityLocations = savedLocations.filter(
     (l) => !city || l.city.toLowerCase() === city.toLowerCase(),
@@ -81,9 +83,9 @@ export default function LocationSearchInput({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const detectLocation = () => {
+  const detectLocation = useCallback(() => {
     if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser.");
+      toast.error("Geolocation is not supported by your browser.");
       return;
     }
     setIsDetecting(true);
@@ -99,16 +101,22 @@ export default function LocationSearchInput({
         setShowResults(false);
       },
       () => {
-        // Fallback for demo when permission denied
-        onChange("Current Location (Demo: Mumbai, Maharashtra)");
-        setSelectedLat(19.076);
-        setSelectedLng(72.8777);
-        if (onCoordinates) onCoordinates(19.076, 72.8777);
+        toast.error(
+          "Location access denied. Please enter your pickup manually or enable GPS.",
+        );
         setIsDetecting(false);
       },
-      { timeout: 8000 },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
     );
-  };
+  }, [onChange, onCoordinates]);
+
+  // Auto-detect pickup location on mount for mobile
+  useEffect(() => {
+    if (isPickup && !value && !autoDetectedRef.current) {
+      autoDetectedRef.current = true;
+      detectLocation();
+    }
+  }, [isPickup, value, detectLocation]);
 
   const pickResult = (r: NominatimResult) => {
     onChange(r.display_name);
@@ -141,7 +149,7 @@ export default function LocationSearchInput({
     });
     setShowSaveName(false);
     setSaveName("");
-    alert(`"${saveName}" saved to your ${city ?? ""} locations!`);
+    toast.success(`"${saveName}" saved to your ${city ?? ""} locations!`);
   };
 
   return (
@@ -185,16 +193,21 @@ export default function LocationSearchInput({
             data-ocid="location.detect_button"
             type="button"
             variant="outline"
-            size="icon"
             onClick={detectLocation}
             disabled={isDetecting}
             title="Detect my location"
-            className="shrink-0 border-primary text-primary hover:bg-primary/10"
+            className="shrink-0 w-auto px-3 border-primary text-primary hover:bg-primary/10 touch-manipulation"
           >
             {isDetecting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <>
+                <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                <span className="text-xs">Detecting...</span>
+              </>
             ) : (
-              <Navigation className="w-4 h-4" />
+              <>
+                <Navigation className="w-4 h-4 mr-1" />
+                <span className="text-xs">Detect</span>
+              </>
             )}
           </Button>
         )}

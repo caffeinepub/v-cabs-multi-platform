@@ -62,10 +62,8 @@ function loadUsers(): User[] {
     const stored = localStorage.getItem("vcabs_users");
     if (stored) {
       const parsed: User[] = JSON.parse(stored);
-      // Always ensure seed users are present with their passwords intact
       const storedMap = new Map(parsed.map((u) => [u.id, u]));
       const merged = seedUsers.map((su) => storedMap.get(su.id) ?? su);
-      // Append any extra users not in seed (e.g. new signups)
       const seedIds = new Set(seedUsers.map((u) => u.id));
       const extras = parsed.filter((u) => !seedIds.has(u.id));
       return [...merged, ...extras];
@@ -99,29 +97,23 @@ export default function App() {
     loadFromStorage<RateConfig>("vcabs_rates", DEFAULT_RATE_CONFIG),
   );
 
-  // Persist all state changes to localStorage
   useEffect(() => {
     localStorage.setItem("vcabs_users", JSON.stringify(users));
   }, [users]);
-
   useEffect(() => {
     localStorage.setItem("vcabs_rides", JSON.stringify(rides));
   }, [rides]);
-
   useEffect(() => {
     localStorage.setItem("vcabs_audit", JSON.stringify(auditLogs));
   }, [auditLogs]);
-
   useEffect(() => {
     localStorage.setItem("vcabs_sos", JSON.stringify(sosEvents));
   }, [sosEvents]);
-
   useEffect(() => {
     localStorage.setItem("vcabs_rates", JSON.stringify(rateConfig));
   }, [rateConfig]);
 
   const handleLogin = (user: User) => {
-    // Always fetch latest version of user from state before logging in
     const latest = users.find((u) => u.id === user.id) ?? user;
     setCurrentUser(latest);
   };
@@ -144,21 +136,35 @@ export default function App() {
     setRides((prev) => [ride, ...prev]);
     setTimeout(() => {
       setUsers((currentUsers) => {
-        const onlineDrivers = currentUsers.filter(
-          (u) => u.role === "driver" && u.status === "active" && u.isOnline,
-        );
-        if (onlineDrivers.length === 0) return currentUsers;
-        const driver =
-          onlineDrivers[Math.floor(Math.random() * onlineDrivers.length)];
-        setRides((prevRides) =>
-          prevRides.map((r) =>
+        // Only assign to drivers who are online, active, not deleted, and have NO active trip
+        setRides((prevRides) => {
+          const activeDriverIds = new Set(
+            prevRides
+              .filter(
+                (r) =>
+                  ["accepted", "in_progress"].includes(r.status) && r.driverId,
+              )
+              .map((r) => r.driverId!),
+          );
+          const eligibleDrivers = currentUsers.filter(
+            (u) =>
+              u.role === "driver" &&
+              u.status === "active" &&
+              u.isOnline &&
+              !u.deletedAt &&
+              !activeDriverIds.has(u.id),
+          );
+          if (eligibleDrivers.length === 0) return prevRides;
+          const driver =
+            eligibleDrivers[Math.floor(Math.random() * eligibleDrivers.length)];
+          toast.success(`Driver ${driver.name} is on the way! (within 5km)`, {
+            duration: 4000,
+          });
+          return prevRides.map((r) =>
             r.id === ride.id
               ? { ...r, status: "accepted", driverId: driver.id }
               : r,
-          ),
-        );
-        toast.success(`Driver ${driver.name} is on the way! (within 5km)`, {
-          duration: 4000,
+          );
         });
         return currentUsers;
       });
@@ -210,20 +216,58 @@ export default function App() {
     ]);
   };
 
+  // Soft-delete: move to trash
   const deleteUser = (userId: string) => {
     const user = users.find((u) => u.id === userId);
+    if (!user) return;
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === userId ? { ...u, deletedAt: new Date().toISOString() } : u,
+      ),
+    );
+    setAuditLogs((prev) => [
+      {
+        id: `a${Date.now()}`,
+        action: `Moved user ${user.name} (${user.role}) to Trash`,
+        actor: currentUser?.name ?? "admin",
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+  };
+
+  // Restore from trash
+  const restoreUser = (userId: string) => {
+    const user = users.find((u) => u.id === userId);
+    if (!user) return;
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, deletedAt: undefined } : u)),
+    );
+    setAuditLogs((prev) => [
+      {
+        id: `a${Date.now()}`,
+        action: `Restored user ${user.name} (${user.role}) from Trash`,
+        actor: currentUser?.name ?? "admin",
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+  };
+
+  // Permanently delete from trash
+  const permanentDeleteUser = (userId: string) => {
+    const user = users.find((u) => u.id === userId);
+    if (!user) return;
     setUsers((prev) => prev.filter((u) => u.id !== userId));
-    if (user) {
-      setAuditLogs((prev) => [
-        {
-          id: `a${Date.now()}`,
-          action: `Deleted user ${user.name} (${user.role})`,
-          actor: currentUser?.name ?? "admin",
-          timestamp: new Date().toISOString(),
-        },
-        ...prev,
-      ]);
-    }
+    setAuditLogs((prev) => [
+      {
+        id: `a${Date.now()}`,
+        action: `Permanently deleted user ${user.name} (${user.role})`,
+        actor: currentUser?.name ?? "admin",
+        timestamp: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
   };
 
   const handleSaveRates = (config: RateConfig) => {
@@ -280,6 +324,8 @@ export default function App() {
           onToggleUserStatus={toggleUserStatus}
           onAddUser={addUser}
           onDeleteUser={deleteUser}
+          onRestoreUser={restoreUser}
+          onPermanentDeleteUser={permanentDeleteUser}
           onSaveRates={handleSaveRates}
           onLogout={handleLogout}
         />

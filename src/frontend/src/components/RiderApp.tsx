@@ -17,8 +17,10 @@ import {
   Coins,
   FileText,
   LogOut,
+  MapPin,
   Menu,
   MessageCircle,
+  Navigation,
   Package,
 } from "lucide-react";
 import { useState } from "react";
@@ -31,24 +33,13 @@ import type {
   SavedLocation,
   User,
 } from "../types/vcabs";
-import { formatFare } from "../utils/fareHelper";
+import { fareFromDistance, formatFare, haversineKm } from "../utils/fareHelper";
 import DocumentUpload from "./DocumentUpload";
 import HelplineChat from "./HelplineChat";
 import LiveMapCanvas from "./LiveMapCanvas";
 import LocationSearchInput from "./LocationSearchInput";
 import SOSScreen from "./SOSScreen";
 import SidebarMenu from "./SidebarMenu";
-
-interface RiderAppProps {
-  currentUser: User;
-  rides: Ride[];
-  onAddRide: (ride: Ride) => void;
-  onUpdateUser: (userId: string, updates: Partial<User>) => void;
-  onAddSOS: (event: SOSEvent) => void;
-  savedLocations: SavedLocation[];
-  onLogout: () => void;
-  rateConfig?: RateConfig;
-}
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
@@ -167,6 +158,24 @@ const WEIGHT_OPTIONS = [
   { id: "oversized", label: "Oversized (20 kg+)", multiplier: 2.2 },
 ];
 
+function openNavigation(location: string) {
+  window.open(
+    `https://maps.google.com/?q=${encodeURIComponent(location)}`,
+    "_blank",
+  );
+}
+
+interface RiderAppProps {
+  currentUser: User;
+  rides: Ride[];
+  onAddRide: (ride: Ride) => void;
+  onUpdateUser: (userId: string, updates: Partial<User>) => void;
+  onAddSOS: (event: SOSEvent) => void;
+  savedLocations: SavedLocation[];
+  onLogout: () => void;
+  rateConfig?: RateConfig;
+}
+
 export default function RiderApp({
   currentUser,
   rides,
@@ -179,7 +188,18 @@ export default function RiderApp({
 }: RiderAppProps) {
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");
+  const [pickupCoords, setPickupCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const [destCoords, setDestCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
   const [estimatedFare, setEstimatedFare] = useState<number | null>(null);
+  const [estimatedDistanceKm, setEstimatedDistanceKm] = useState<number | null>(
+    null,
+  );
   const [isEstimating, setIsEstimating] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedRideType, setSelectedRideType] = useState("cab");
@@ -187,15 +207,22 @@ export default function RiderApp({
     "home",
   );
 
-  // Parcel state
   const [parcelSender, setParcelSender] = useState("");
   const [parcelReceiver, setParcelReceiver] = useState("");
+  const [parcelSenderCoords, setParcelSenderCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const [parcelReceiverCoords, setParcelReceiverCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
   const [parcelWeight, setParcelWeight] = useState("light");
   const [selectedParcelType, setSelectedParcelType] = useState("bike");
   const [parcelFare, setParcelFare] = useState<number | null>(null);
+  const [parcelDistanceKm, setParcelDistanceKm] = useState<number | null>(null);
   const [isEstimatingParcel, setIsEstimatingParcel] = useState(false);
 
-  // Document state
   const [docIdProof, setDocIdProof] = useState(
     currentUser.documents?.idProof ?? "",
   );
@@ -224,6 +251,44 @@ export default function RiderApp({
   const selectedWeightOption =
     WEIGHT_OPTIONS.find((w) => w.id === parcelWeight) ?? WEIGHT_OPTIONS[0];
 
+  // Calculate fare using actual distance if coords available, else fallback to random
+  const calcRideFare = (typeId: string, distKm: number | null): number => {
+    const rateEntry = rateConfig?.rideRates.find((r) => r.id === typeId);
+    const type = RIDE_TYPES.find((r) => r.id === typeId);
+    const multiplier = rateEntry?.multiplier ?? type?.multiplier ?? 1;
+    const baseRate = rateEntry?.baseRate ?? 15;
+    if (distKm && distKm > 0) {
+      return fareFromDistance(distKm, baseRate, multiplier);
+    }
+    const baseFare = Math.floor(Math.random() * 40) + 15;
+    return Math.round(baseFare * multiplier);
+  };
+
+  const calcParcelFare = (
+    typeId: string,
+    weightId: string,
+    distKm: number | null,
+  ): number => {
+    const rateEntry = rateConfig?.parcelRates.find((p) => p.id === typeId);
+    const type = PARCEL_TYPES.find((p) => p.id === typeId);
+    const weightEntry = rateConfig?.weightSurcharges.find(
+      (w) => w.id === weightId,
+    );
+    const weight = WEIGHT_OPTIONS.find((w) => w.id === weightId);
+    const multiplier =
+      (rateEntry?.multiplier ?? type?.multiplier ?? 1) *
+      (weightEntry?.multiplier ?? weight?.multiplier ?? 1);
+    const baseRate = rateEntry?.baseRate ?? 15;
+    if (distKm && distKm > 0) {
+      return fareFromDistance(distKm, baseRate, multiplier);
+    }
+    const baseFare = Math.floor(Math.random() * 30) + 20;
+    return Math.round(baseFare * multiplier);
+  };
+
+  const getFareForType = (typeId: string) =>
+    calcRideFare(typeId, estimatedDistanceKm);
+
   const estimateFare = () => {
     if (!pickup || !destination) {
       toast.error("Please enter pickup and destination");
@@ -231,37 +296,26 @@ export default function RiderApp({
     }
     setIsEstimating(true);
     setTimeout(() => {
-      setEstimatedFare(Math.floor(Math.random() * 40) + 15);
+      let distKm: number | null = null;
+      if (pickupCoords && destCoords) {
+        distKm = haversineKm(
+          pickupCoords.lat,
+          pickupCoords.lng,
+          destCoords.lat,
+          destCoords.lng,
+        );
+        // Add ~30% routing overhead for actual road distance vs straight-line
+        distKm = distKm * 1.3;
+        setEstimatedDistanceKm(distKm);
+      } else {
+        // Fallback: estimate 3-15 km
+        distKm = Math.random() * 12 + 3;
+        setEstimatedDistanceKm(distKm);
+      }
+      const baseFare = calcRideFare("cab", distKm);
+      setEstimatedFare(baseFare);
       setIsEstimating(false);
     }, 800);
-  };
-
-  const getFareForType = (baseFare: number, typeId: string) => {
-    // Use admin-configured multiplier if available, else fall back to RIDE_TYPES
-    const rateMultiplier = rateConfig?.rideRates.find(
-      (r) => r.id === typeId,
-    )?.multiplier;
-    const type = RIDE_TYPES.find((r) => r.id === typeId);
-    const multiplier = rateMultiplier ?? type?.multiplier ?? 1;
-    return Math.round(baseFare * multiplier);
-  };
-
-  const getParcelFareForType = (
-    baseFare: number,
-    typeId: string,
-    weightId: string,
-  ) => {
-    const rateMultiplier = rateConfig?.parcelRates.find(
-      (p) => p.id === typeId,
-    )?.multiplier;
-    const type = PARCEL_TYPES.find((p) => p.id === typeId);
-    const weightMultiplier = rateConfig?.weightSurcharges.find(
-      (w) => w.id === weightId,
-    )?.multiplier;
-    const weight = WEIGHT_OPTIONS.find((w) => w.id === weightId);
-    const m = rateMultiplier ?? type?.multiplier ?? 1;
-    const wm = weightMultiplier ?? weight?.multiplier ?? 1;
-    return Math.round(baseFare * m * wm);
   };
 
   const bookRide = () => {
@@ -269,8 +323,17 @@ export default function RiderApp({
       toast.error("Please enter pickup and destination");
       return;
     }
-    const baseFare = estimatedFare ?? Math.floor(Math.random() * 40) + 15;
-    const fare = getFareForType(baseFare, selectedRideType);
+    const distKm =
+      estimatedDistanceKm ??
+      (pickupCoords && destCoords
+        ? haversineKm(
+            pickupCoords.lat,
+            pickupCoords.lng,
+            destCoords.lat,
+            destCoords.lng,
+          ) * 1.3
+        : null);
+    const fare = calcRideFare(selectedRideType, distKm);
     const newRide: Ride & { rideType?: string } = {
       id: `r${Date.now()}`,
       riderId: currentUser.id,
@@ -281,11 +344,19 @@ export default function RiderApp({
       otp: String(Math.floor(1000 + Math.random() * 9000)),
       createdAt: new Date().toISOString(),
       rideType: selectedType.name,
+      pickupLat: pickupCoords?.lat,
+      pickupLng: pickupCoords?.lng,
+      destLat: destCoords?.lat,
+      destLng: destCoords?.lng,
+      distanceKm: distKm ?? undefined,
     };
     onAddRide(newRide as Ride);
     setPickup("");
     setDestination("");
+    setPickupCoords(null);
+    setDestCoords(null);
     setEstimatedFare(null);
+    setEstimatedDistanceKm(null);
     toast.success(
       `${selectedType.name} ride booked! Looking for a driver nearby...`,
     );
@@ -298,7 +369,21 @@ export default function RiderApp({
     }
     setIsEstimatingParcel(true);
     setTimeout(() => {
-      setParcelFare(Math.floor(Math.random() * 30) + 20);
+      let distKm: number | null = null;
+      if (parcelSenderCoords && parcelReceiverCoords) {
+        distKm =
+          haversineKm(
+            parcelSenderCoords.lat,
+            parcelSenderCoords.lng,
+            parcelReceiverCoords.lat,
+            parcelReceiverCoords.lng,
+          ) * 1.3;
+        setParcelDistanceKm(distKm);
+      } else {
+        distKm = Math.random() * 12 + 3;
+        setParcelDistanceKm(distKm);
+      }
+      setParcelFare(calcParcelFare(selectedParcelType, parcelWeight, distKm));
       setIsEstimatingParcel(false);
     }, 800);
   };
@@ -308,12 +393,8 @@ export default function RiderApp({
       toast.error("Please enter sender and receiver locations");
       return;
     }
-    const baseFare = parcelFare ?? Math.floor(Math.random() * 30) + 20;
-    const fare = getParcelFareForType(
-      baseFare,
-      selectedParcelType,
-      parcelWeight,
-    );
+    const distKm = parcelDistanceKm;
+    const fare = calcParcelFare(selectedParcelType, parcelWeight, distKm);
     const newRide: Ride & { rideType?: string } = {
       id: `p${Date.now()}`,
       riderId: currentUser.id,
@@ -324,11 +405,19 @@ export default function RiderApp({
       otp: String(Math.floor(1000 + Math.random() * 9000)),
       createdAt: new Date().toISOString(),
       rideType: `📦 Parcel - ${selectedParcel.name}`,
+      pickupLat: parcelSenderCoords?.lat,
+      pickupLng: parcelSenderCoords?.lng,
+      destLat: parcelReceiverCoords?.lat,
+      destLng: parcelReceiverCoords?.lng,
+      distanceKm: distKm ?? undefined,
     };
     onAddRide(newRide as Ride);
     setParcelSender("");
     setParcelReceiver("");
+    setParcelSenderCoords(null);
+    setParcelReceiverCoords(null);
     setParcelFare(null);
+    setParcelDistanceKm(null);
     toast.success(
       `Parcel via ${selectedParcel.name} booked! Looking for a driver nearby...`,
     );
@@ -350,7 +439,6 @@ export default function RiderApp({
     return seedUsers.find((u) => u.id === driverId)?.name ?? "Driver";
   };
 
-  // Render SOS or Helpline full screens
   if (activeScreen === "sos") {
     return (
       <SOSScreen
@@ -370,7 +458,6 @@ export default function RiderApp({
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
       <header className="sticky top-0 z-30 bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-3">
           <button
@@ -477,24 +564,61 @@ export default function RiderApp({
                     onChange={(v) => {
                       setPickup(v);
                       setEstimatedFare(null);
+                      setEstimatedDistanceKm(null);
                     }}
+                    onCoordinates={(lat, lng) => setPickupCoords({ lat, lng })}
                     isPickup
                     city={currentUser.city}
                     savedLocations={savedLocations}
                     placeholder="Auto-detect or search pickup..."
                   />
+                  {/* Navigate to pickup */}
+                  {pickup && (
+                    <button
+                      type="button"
+                      data-ocid="rider.pickup_navigate.button"
+                      onClick={() => openNavigation(pickup)}
+                      className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                    >
+                      <Navigation className="w-3.5 h-3.5" /> Navigate to Pickup
+                    </button>
+                  )}
+
                   <LocationSearchInput
                     label="Drop Location"
                     value={destination}
                     onChange={(v) => {
                       setDestination(v);
                       setEstimatedFare(null);
+                      setEstimatedDistanceKm(null);
                     }}
+                    onCoordinates={(lat, lng) => setDestCoords({ lat, lng })}
                     city={currentUser.city}
                     savedLocations={savedLocations}
                     placeholder="Search destination..."
                   />
+                  {/* Navigate to drop */}
+                  {destination && (
+                    <button
+                      type="button"
+                      data-ocid="rider.drop_navigate.button"
+                      onClick={() => openNavigation(destination)}
+                      className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                    >
+                      <MapPin className="w-3.5 h-3.5" /> Navigate to Drop
+                    </button>
+                  )}
                 </div>
+
+                {estimatedDistanceKm && (
+                  <div className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Navigation className="w-3 h-3" />
+                    Estimated distance:{" "}
+                    <span className="font-semibold text-foreground">
+                      {estimatedDistanceKm.toFixed(1)} km
+                    </span>
+                  </div>
+                )}
 
                 <div>
                   <p className="text-sm font-semibold text-foreground mb-3">
@@ -503,8 +627,8 @@ export default function RiderApp({
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
                     {RIDE_TYPES.map((type, idx) => {
                       const isSelected = selectedRideType === type.id;
-                      const displayFare = estimatedFare
-                        ? getFareForType(estimatedFare, type.id)
+                      const displayFare = estimatedDistanceKm
+                        ? getFareForType(type.id)
                         : null;
                       return (
                         <button
@@ -540,7 +664,7 @@ export default function RiderApp({
                             <span
                               className={`text-[10px] font-bold mt-0.5 ${isSelected ? "text-primary" : "text-muted-foreground"}`}
                             >
-                              ₹{displayFare}
+                              ₹{displayFare * 5}
                             </span>
                           )}
                         </button>
@@ -556,9 +680,7 @@ export default function RiderApp({
                     </span>
                     <span className="font-bold text-primary flex items-center gap-1">
                       <Coins className="w-4 h-4" />
-                      {formatFare(
-                        getFareForType(estimatedFare, selectedRideType),
-                      )}
+                      {formatFare(getFareForType(selectedRideType))}
                     </span>
                   </div>
                 )}
@@ -609,22 +731,61 @@ export default function RiderApp({
                     onChange={(v) => {
                       setParcelSender(v);
                       setParcelFare(null);
+                      setParcelDistanceKm(null);
                     }}
+                    onCoordinates={(lat, lng) =>
+                      setParcelSenderCoords({ lat, lng })
+                    }
                     isPickup
                     city={currentUser.city}
                     savedLocations={savedLocations}
                   />
+                  {parcelSender && (
+                    <button
+                      type="button"
+                      data-ocid="rider.parcel_pickup_navigate.button"
+                      onClick={() => openNavigation(parcelSender)}
+                      className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                    >
+                      <Navigation className="w-3.5 h-3.5" /> Navigate to Pickup
+                    </button>
+                  )}
+
                   <LocationSearchInput
                     label="Drop / Receiver Location"
                     value={parcelReceiver}
                     onChange={(v) => {
                       setParcelReceiver(v);
                       setParcelFare(null);
+                      setParcelDistanceKm(null);
                     }}
+                    onCoordinates={(lat, lng) =>
+                      setParcelReceiverCoords({ lat, lng })
+                    }
                     city={currentUser.city}
                     savedLocations={savedLocations}
                   />
+                  {parcelReceiver && (
+                    <button
+                      type="button"
+                      data-ocid="rider.parcel_drop_navigate.button"
+                      onClick={() => openNavigation(parcelReceiver)}
+                      className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                    >
+                      <MapPin className="w-3.5 h-3.5" /> Navigate to Drop
+                    </button>
+                  )}
                 </div>
+
+                {parcelDistanceKm && (
+                  <div className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Navigation className="w-3 h-3" />
+                    Estimated distance:{" "}
+                    <span className="font-semibold text-foreground">
+                      {parcelDistanceKm.toFixed(1)} km
+                    </span>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold">Parcel Weight</Label>
@@ -658,11 +819,11 @@ export default function RiderApp({
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
                     {PARCEL_TYPES.map((type, idx) => {
                       const isSelected = selectedParcelType === type.id;
-                      const displayFare = parcelFare
-                        ? getParcelFareForType(
-                            parcelFare,
+                      const displayFare = parcelDistanceKm
+                        ? calcParcelFare(
                             type.id,
                             parcelWeight,
+                            parcelDistanceKm,
                           )
                         : null;
                       return (
@@ -702,7 +863,7 @@ export default function RiderApp({
                             <span
                               className={`text-[10px] font-bold mt-0.5 ${isSelected ? "text-primary" : "text-muted-foreground"}`}
                             >
-                              ₹{displayFare}
+                              ₹{displayFare * 5}
                             </span>
                           )}
                         </button>
@@ -720,10 +881,10 @@ export default function RiderApp({
                     <span className="font-bold text-primary flex items-center gap-1">
                       <Coins className="w-4 h-4" />
                       {formatFare(
-                        getParcelFareForType(
-                          parcelFare,
+                        calcParcelFare(
                           selectedParcelType,
                           parcelWeight,
+                          parcelDistanceKm,
                         ),
                       )}
                     </span>
@@ -766,6 +927,11 @@ export default function RiderApp({
               myRides.map((ride, idx) => {
                 const rideWithType = ride as Ride & { rideType?: string };
                 const isParcel = rideWithType.rideType?.startsWith("📦 Parcel");
+                const isActive = [
+                  "pending",
+                  "accepted",
+                  "in_progress",
+                ].includes(ride.status);
                 return (
                   <Card
                     key={ride.id}
@@ -780,11 +946,7 @@ export default function RiderApp({
                           </span>
                           {rideWithType.rideType && (
                             <span
-                              className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
-                                isParcel
-                                  ? "bg-amber-100 text-amber-800 border-amber-200"
-                                  : "bg-primary/10 text-primary border-primary/20"
-                              }`}
+                              className={`text-xs px-2 py-0.5 rounded-full border font-medium ${isParcel ? "bg-amber-100 text-amber-800 border-amber-200" : "bg-primary/10 text-primary border-primary/20"}`}
                             >
                               {rideWithType.rideType}
                             </span>
@@ -796,16 +958,47 @@ export default function RiderApp({
                           {ride.status.replace("_", " ")}
                         </span>
                       </div>
+
                       <div className="space-y-2">
                         <div className="flex items-start gap-2">
                           <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0" />
-                          <span className="text-sm">{ride.pickup}</span>
+                          <span className="text-sm flex-1">{ride.pickup}</span>
+                          {isActive && (
+                            <button
+                              type="button"
+                              data-ocid={`rider.active_ride.pickup_navigate.button.${idx + 1}`}
+                              onClick={() => openNavigation(ride.pickup)}
+                              className="shrink-0 flex items-center gap-1 bg-primary/10 text-primary text-xs font-semibold px-2 py-1 rounded-lg hover:bg-primary/20 transition-colors"
+                            >
+                              <Navigation className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                         <div className="flex items-start gap-2">
                           <div className="w-2 h-2 rounded-full bg-foreground/30 mt-1.5 flex-shrink-0" />
-                          <span className="text-sm">{ride.destination}</span>
+                          <span className="text-sm flex-1">
+                            {ride.destination}
+                          </span>
+                          {isActive && (
+                            <button
+                              type="button"
+                              data-ocid={`rider.active_ride.drop_navigate.button.${idx + 1}`}
+                              onClick={() => openNavigation(ride.destination)}
+                              className="shrink-0 flex items-center gap-1 bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-1 rounded-lg hover:bg-blue-200 transition-colors"
+                            >
+                              <MapPin className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       </div>
+
+                      {ride.distanceKm && (
+                        <div className="mt-2 text-xs text-muted-foreground flex items-center gap-1">
+                          <Navigation className="w-3 h-3" />{" "}
+                          {ride.distanceKm.toFixed(1)} km
+                        </div>
+                      )}
+
                       <Separator className="my-3" />
                       <div className="flex items-center justify-between text-sm">
                         <span className="font-semibold text-primary flex items-center gap-1">
@@ -818,13 +1011,19 @@ export default function RiderApp({
                           </span>
                         )}
                       </div>
-                      {ride.status === "in_progress" && (
+
+                      {/* OTP shown to Rider when accepted or in_progress so they can share with driver */}
+                      {(ride.status === "accepted" ||
+                        ride.status === "in_progress") && (
                         <div className="mt-3 rounded-lg bg-primary/10 border border-primary/20 px-3 py-2">
                           <p className="text-xs text-primary font-medium">
-                            Trip OTP:{" "}
-                            <span className="font-mono font-bold text-sm">
+                            Your OTP:{" "}
+                            <span className="font-mono font-bold text-sm tracking-widest">
                               {ride.otp}
                             </span>
+                          </p>
+                          <p className="text-[10px] text-primary/70 mt-0.5">
+                            Share this OTP with your driver to start the trip
                           </p>
                         </div>
                       )}

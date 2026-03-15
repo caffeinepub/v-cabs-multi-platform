@@ -4,6 +4,14 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Bricolage+Grotesque:wght@400;500;600;700;800&display=swap');
 
+/* Mobile improvements */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+input, textarea, select {
+  font-size: 16px; /* Prevent iOS zoom */
+}
+
 @layer base {
   :root {
     --radius: 0.5rem;

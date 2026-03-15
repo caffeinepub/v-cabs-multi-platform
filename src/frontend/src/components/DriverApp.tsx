@@ -22,6 +22,7 @@ import {
   MapPin,
   Menu,
   MessageCircle,
+  Navigation,
   Smartphone,
   Sparkles,
   Star,
@@ -74,6 +75,13 @@ interface DriverAppProps {
   onLogout: () => void;
 }
 
+function openNavigation(location: string) {
+  window.open(
+    `https://maps.google.com/?q=${encodeURIComponent(location)}`,
+    "_blank",
+  );
+}
+
 export default function DriverApp({
   currentUser,
   rides,
@@ -88,19 +96,15 @@ export default function DriverApp({
     "home",
   );
 
-  // Subscription state
   const [subscribedPlan, setSubscribedPlan] = useState<
     "daily" | "weekly" | null
   >(null);
   const [subscriptionExpiry, setSubscriptionExpiry] = useState<Date | null>(
     null,
   );
-
-  // UPI Payment state
   const [upiList, setUpiList] = useState<string[]>(["9999000003@okbizaxis"]);
   const [newUpi, setNewUpi] = useState("");
 
-  // Document state
   const [docIdProof, setDocIdProof] = useState(
     currentUser.documents?.idProof ?? "",
   );
@@ -172,7 +176,7 @@ export default function DriverApp({
     toast.success("UPI removed.");
   };
 
-  const availableRides = rides.filter((r) => r.status === "pending");
+  // Only rides assigned to this driver that are active
   const myTrips = rides.filter(
     (r) =>
       r.driverId === currentUser.id &&
@@ -184,6 +188,13 @@ export default function DriverApp({
   const earnings = completedTrips.reduce((sum, r) => sum + r.fare, 0);
 
   const activeTrip = myTrips[0] as (Ride & { rideType?: string }) | undefined;
+  const hasActiveTrip = myTrips.length > 0;
+
+  // Available rides: pending, and driver has no active trip
+  const availableRides = hasActiveTrip
+    ? []
+    : rides.filter((r) => r.status === "pending");
+
   const driverMapStatus =
     (activeTrip?.status as
       | "idle"
@@ -193,6 +204,10 @@ export default function DriverApp({
       | "completed") ?? "idle";
 
   const acceptRide = (ride: Ride) => {
+    if (hasActiveTrip) {
+      toast.error("Complete your current trip before accepting a new one.");
+      return;
+    }
     onUpdateRide(ride.id, { status: "accepted", driverId: currentUser.id });
     toast.success(`Ride accepted! Head to ${ride.pickup}`);
   };
@@ -200,7 +215,7 @@ export default function DriverApp({
   const startTrip = (ride: Ride) => {
     const inputOtp = otpInputs[ride.id] ?? "";
     if (inputOtp !== ride.otp) {
-      toast.error(`Wrong OTP! Expected: ${ride.otp}`);
+      toast.error("Wrong OTP! Please ask the rider for the correct OTP.");
       return;
     }
     onUpdateRide(ride.id, { status: "in_progress" });
@@ -236,7 +251,6 @@ export default function DriverApp({
     docPermit,
   ].filter(Boolean).length;
 
-  // Full screen SOS/Helpline
   if (activeScreen === "sos") {
     return (
       <SOSScreen
@@ -256,7 +270,6 @@ export default function DriverApp({
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
       <header className="sticky top-0 z-30 bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-3">
           <button
@@ -305,12 +318,9 @@ export default function DriverApp({
         </div>
       </header>
 
-      {/* Online/Offline Banner */}
       <div
         data-ocid="driver.online_banner"
-        className={`flex items-center justify-between px-4 py-2.5 text-sm font-semibold ${
-          isOnline ? "bg-green-600 text-white" : "bg-gray-400 text-white"
-        }`}
+        className={`flex items-center justify-between px-4 py-2.5 text-sm font-semibold ${isOnline ? "bg-green-600 text-white" : "bg-gray-400 text-white"}`}
       >
         <div className="flex items-center gap-2">
           {isOnline ? (
@@ -330,13 +340,11 @@ export default function DriverApp({
             data-ocid="driver.online_toggle.switch"
             checked={isOnline}
             onCheckedChange={toggleOnline}
-            className="data-[state=checked]:bg-white data-[state=checked]:text-green-600"
           />
         </div>
       </div>
 
       <main className="flex-1 px-4 py-4 space-y-4 max-w-2xl mx-auto w-full">
-        {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
           <Card className="border-border">
             <CardContent className="p-3 text-center">
@@ -414,13 +422,20 @@ export default function DriverApp({
 
           {/* Available Rides */}
           <TabsContent value="available" className="space-y-3">
-            {/* Live Map */}
             <LiveMapCanvas
               status={driverMapStatus}
               pickup={activeTrip?.pickup ?? ""}
               destination={activeTrip?.destination ?? ""}
               rideType={(activeTrip as Ride & { rideType?: string })?.rideType}
             />
+
+            {hasActiveTrip && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800 font-medium flex items-center gap-2">
+                <Car className="w-4 h-4" />
+                You have an active trip. Complete it before accepting a new
+                ride.
+              </div>
+            )}
 
             {!isOnline ? (
               <div
@@ -433,7 +448,7 @@ export default function DriverApp({
                   Toggle online to start receiving rides
                 </p>
               </div>
-            ) : availableRides.length === 0 ? (
+            ) : availableRides.length === 0 && !hasActiveTrip ? (
               <div
                 data-ocid="driver.rides.empty_state"
                 className="text-center py-8 text-muted-foreground"
@@ -453,11 +468,13 @@ export default function DriverApp({
                       <div className="space-y-2">
                         <div className="flex items-start gap-2">
                           <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
-                          <span className="text-sm">{ride.pickup}</span>
+                          <span className="text-sm flex-1">{ride.pickup}</span>
                         </div>
                         <div className="flex items-start gap-2">
                           <div className="w-2 h-2 rounded-full bg-foreground/30 mt-1.5 shrink-0" />
-                          <span className="text-sm">{ride.destination}</span>
+                          <span className="text-sm flex-1">
+                            {ride.destination}
+                          </span>
                         </div>
                       </div>
                       <Separator />
@@ -515,46 +532,96 @@ export default function DriverApp({
                           ? "In Progress"
                           : "Accepted"}
                       </Badge>
-                      <span className="text-xs font-mono text-muted-foreground">
-                        OTP: {ride.otp}
+                      {ride.distanceKm && (
+                        <span className="text-xs text-muted-foreground">
+                          {ride.distanceKm.toFixed(1)} km
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Pickup with Navigate button */}
+                    <div className="flex items-start gap-2 rounded-lg bg-muted/50 px-3 py-2">
+                      <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-muted-foreground font-semibold uppercase">
+                          Pickup
+                        </p>
+                        <p className="text-sm">{ride.pickup}</p>
+                      </div>
+                      <button
+                        type="button"
+                        data-ocid={`driver.trip.pickup_navigate.button.${idx + 1}`}
+                        onClick={() => openNavigation(ride.pickup)}
+                        className="shrink-0 flex items-center gap-1 bg-primary text-primary-foreground text-xs font-semibold px-2.5 py-1.5 rounded-lg hover:bg-primary/90 transition-colors"
+                        title="Navigate to Pickup"
+                      >
+                        <Navigation className="w-3.5 h-3.5" /> Navigate
+                      </button>
+                    </div>
+
+                    {/* Drop with Navigate button */}
+                    <div className="flex items-start gap-2 rounded-lg bg-muted/50 px-3 py-2">
+                      <div className="w-2 h-2 rounded-full bg-foreground/30 mt-1.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-muted-foreground font-semibold uppercase">
+                          Drop
+                        </p>
+                        <p className="text-sm">{ride.destination}</p>
+                      </div>
+                      <button
+                        type="button"
+                        data-ocid={`driver.trip.drop_navigate.button.${idx + 1}`}
+                        onClick={() => openNavigation(ride.destination)}
+                        className="shrink-0 flex items-center gap-1 bg-blue-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg hover:bg-blue-700 transition-colors"
+                        title="Navigate to Drop"
+                      >
+                        <MapPin className="w-3.5 h-3.5" /> Navigate
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-bold text-primary flex items-center gap-1">
+                        <Coins className="w-4 h-4" />
+                        {formatFare(ride.fare)}
+                      </span>
+                      <span className="text-muted-foreground">
+                        Rider: {getRiderName(ride.riderId)}
                       </span>
                     </div>
-                    <div className="space-y-2">
-                      <div className="flex items-start gap-2">
-                        <div className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />
-                        <span className="text-sm">{ride.pickup}</span>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="w-2 h-2 rounded-full bg-foreground/30 mt-1.5 shrink-0" />
-                        <span className="text-sm">{ride.destination}</span>
-                      </div>
-                    </div>
+
+                    {/* OTP Entry (driver enters OTP given by rider) - no OTP display */}
                     {ride.status === "accepted" && (
-                      <div className="flex gap-2">
-                        <input
-                          data-ocid={`driver.otp.input.${idx + 1}`}
-                          type="text"
-                          placeholder="Enter OTP from rider"
-                          value={otpInputs[ride.id] ?? ""}
-                          onChange={(e) =>
-                            setOtpInputs((prev) => ({
-                              ...prev,
-                              [ride.id]: e.target.value,
-                            }))
-                          }
-                          className="flex-1 border border-border rounded-md px-3 py-2 text-sm"
-                          maxLength={4}
-                        />
-                        <Button
-                          data-ocid={`driver.start_trip.button.${idx + 1}`}
-                          onClick={() => startTrip(ride)}
-                          size="sm"
-                          className="bg-primary text-primary-foreground"
-                        >
-                          Start Trip
-                        </Button>
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          Ask the rider for their OTP to start the trip
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            data-ocid={`driver.otp.input.${idx + 1}`}
+                            type="text"
+                            placeholder="Enter OTP from rider"
+                            value={otpInputs[ride.id] ?? ""}
+                            onChange={(e) =>
+                              setOtpInputs((prev) => ({
+                                ...prev,
+                                [ride.id]: e.target.value,
+                              }))
+                            }
+                            className="flex-1 border border-border rounded-md px-3 py-2 text-sm"
+                            maxLength={4}
+                          />
+                          <Button
+                            data-ocid={`driver.start_trip.button.${idx + 1}`}
+                            onClick={() => startTrip(ride)}
+                            size="sm"
+                            className="bg-primary text-primary-foreground"
+                          >
+                            Start Trip
+                          </Button>
+                        </div>
                       </div>
                     )}
+
                     {ride.status === "in_progress" && (
                       <Button
                         data-ocid={`driver.complete_trip.button.${idx + 1}`}
@@ -601,8 +668,6 @@ export default function DriverApp({
                     </span>
                   </div>
                 </div>
-
-                {/* City Selector */}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
                     <MapPin className="w-3.5 h-3.5" /> Operating City
@@ -625,7 +690,6 @@ export default function DriverApp({
                     </SelectContent>
                   </Select>
                 </div>
-
                 {completedTrips.length > 0 && (
                   <>
                     <Separator />
@@ -662,8 +726,7 @@ export default function DriverApp({
                   <FileText className="w-5 h-5 text-primary" /> Driver Documents
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Upload all 5 required documents for verification ({docCount}/5
-                  uploaded)
+                  Upload all 5 required documents ({docCount}/5 uploaded)
                 </p>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -697,7 +760,6 @@ export default function DriverApp({
                   onChange={setDocPermit}
                   required
                 />
-
                 <Button
                   data-ocid="driver.save_docs.button"
                   onClick={saveDocuments}
@@ -707,8 +769,7 @@ export default function DriverApp({
                 </Button>
                 {docCount < 5 && (
                   <p className="text-xs text-amber-600 text-center">
-                    ⚠️ Please upload all 5 documents to complete your profile
-                    verification.
+                    ⚠️ Please upload all 5 documents to complete verification.
                   </p>
                 )}
               </CardContent>
@@ -727,24 +788,21 @@ export default function DriverApp({
               </p>
             </div>
 
-            {/* Active Plan Status */}
             {subscribedPlan && subscriptionExpiry && (
               <Card
                 data-ocid="driver.subscription.status.panel"
-                className="border-green-300 bg-green-50 dark:bg-green-950/30 dark:border-green-800"
+                className="border-green-300 bg-green-50"
               >
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
+                      <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
                         <CheckCircle className="w-5 h-5 text-green-600" />
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <Badge className="bg-green-600 text-white capitalize">
-                            {subscribedPlan} Plan Active
-                          </Badge>
-                        </div>
+                        <Badge className="bg-green-600 text-white capitalize">
+                          {subscribedPlan} Plan Active
+                        </Badge>
                         <p className="text-xs text-muted-foreground mt-1">
                           Expires:{" "}
                           {subscriptionExpiry.toLocaleString("en-IN", {
@@ -762,7 +820,7 @@ export default function DriverApp({
                       variant="outline"
                       size="sm"
                       onClick={cancelSubscription}
-                      className="text-red-600 border-red-300 hover:bg-red-50 hover:text-red-700"
+                      className="text-red-600 border-red-300 hover:bg-red-50"
                     >
                       <XCircle className="w-4 h-4 mr-1" />
                       Cancel
@@ -772,16 +830,10 @@ export default function DriverApp({
               </Card>
             )}
 
-            {/* Plan Cards */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {/* Daily Plan */}
               <Card
                 data-ocid="driver.subscription.daily.card"
-                className={`border-2 transition-all ${
-                  subscribedPlan === "daily"
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50"
-                }`}
+                className={`border-2 transition-all ${subscribedPlan === "daily" ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
@@ -810,13 +862,10 @@ export default function DriverApp({
                       "Unlimited ride requests",
                       "Priority assignment",
                       "Valid for 24 hours",
-                    ].map((feature) => (
-                      <li
-                        key={feature}
-                        className="flex items-center gap-2 text-sm"
-                      >
+                    ].map((f) => (
+                      <li key={f} className="flex items-center gap-2 text-sm">
                         <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
-                        {feature}
+                        {f}
                       </li>
                     ))}
                   </ul>
@@ -833,14 +882,9 @@ export default function DriverApp({
                 </CardContent>
               </Card>
 
-              {/* Weekly Plan */}
               <Card
                 data-ocid="driver.subscription.weekly.card"
-                className={`border-2 transition-all relative ${
-                  subscribedPlan === "weekly"
-                    ? "border-primary bg-primary/5"
-                    : "border-primary/70 hover:border-primary shadow-md shadow-primary/10"
-                }`}
+                className={`border-2 transition-all relative ${subscribedPlan === "weekly" ? "border-primary bg-primary/5" : "border-primary/70 hover:border-primary shadow-md"}`}
               >
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                   <Badge className="bg-primary text-primary-foreground px-3 py-1 text-xs font-bold flex items-center gap-1">
@@ -878,13 +922,10 @@ export default function DriverApp({
                       "Priority assignment",
                       "Valid for 7 days",
                       "24/7 support",
-                    ].map((feature) => (
-                      <li
-                        key={feature}
-                        className="flex items-center gap-2 text-sm"
-                      >
+                    ].map((f) => (
+                      <li key={f} className="flex items-center gap-2 text-sm">
                         <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
-                        {feature}
+                        {f}
                       </li>
                     ))}
                   </ul>
@@ -902,7 +943,6 @@ export default function DriverApp({
               </Card>
             </div>
 
-            {/* UPI Payment Methods */}
             <Card className="border-border shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -914,7 +954,6 @@ export default function DriverApp({
                 </p>
               </CardHeader>
               <CardContent className="space-y-3">
-                {/* UPI List */}
                 <div className="space-y-2">
                   {upiList.map((upi, idx) => (
                     <div
@@ -938,15 +977,12 @@ export default function DriverApp({
                         type="button"
                         onClick={() => deleteUpi(upi)}
                         className="p-1.5 rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
-                        title="Remove UPI"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
                 </div>
-
-                {/* Add New UPI */}
                 <div className="flex gap-2 pt-1">
                   <input
                     data-ocid="driver.subscription.upi.input"

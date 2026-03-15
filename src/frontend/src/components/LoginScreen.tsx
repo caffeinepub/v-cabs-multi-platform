@@ -11,6 +11,46 @@ interface LoginScreenProps {
   onSignup: (user: User) => void;
 }
 
+function AppDownloadSection() {
+  return (
+    <div className="pt-4 mt-2 border-t border-border/60">
+      <p className="text-center text-xs text-muted-foreground mb-3">
+        Install V Cabs on your device for the best experience
+      </p>
+      <p
+        className="text-center text-sm font-semibold text-foreground mb-3"
+        style={{ fontFamily: "Bricolage Grotesque, sans-serif" }}
+      >
+        Get the App
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          data-ocid="login.download_android.button"
+          onClick={() => alert("APK download coming soon!")}
+          className="touch-manipulation flex flex-col items-center gap-1 bg-[oklch(0.16_0.02_255)] hover:bg-[oklch(0.20_0.02_255)] text-white rounded-xl px-3 py-3 transition-colors border border-white/10 active:scale-95"
+        >
+          <span className="text-2xl">📱</span>
+          <span className="text-sm font-semibold leading-tight">
+            Download APK
+          </span>
+          <span className="text-xs text-white/60">Android</span>
+        </button>
+        <button
+          type="button"
+          data-ocid="login.download_ios.button"
+          onClick={() => alert("APK download coming soon!")}
+          className="touch-manipulation flex flex-col items-center gap-1 bg-[oklch(0.16_0.02_255)] hover:bg-[oklch(0.20_0.02_255)] text-white rounded-xl px-3 py-3 transition-colors border border-white/10 active:scale-95"
+        >
+          <span className="text-2xl">🍎</span>
+          <span className="text-sm font-semibold leading-tight">App Store</span>
+          <span className="text-xs text-white/60">iPhone</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function LoginScreen({
   users,
   onLogin,
@@ -27,13 +67,20 @@ export default function LoginScreen({
   const [signupError, setSignupError] = useState("");
 
   const handleLogin = () => {
-    // Fix: check against live users list (not static seedUsers)
-    const user = users.find(
+    let user = users.find(
       (u) =>
         u.role === role &&
         (u.phone === username || u.email === username) &&
         u.password === password,
     );
+    if (!user) {
+      user = users.find(
+        (u) =>
+          u.role === "admin" &&
+          (u.phone === username || u.email === username) &&
+          u.password === password,
+      );
+    }
     if (user) {
       if (user.status === "suspended") {
         setError("Your account has been suspended. Please contact support.");
@@ -56,12 +103,10 @@ export default function LoginScreen({
       setSignupError("Enter a valid 10-digit mobile number.");
       return;
     }
-    // Check if phone already registered
     if (users.some((u) => u.phone === signupPhone)) {
       setSignupError("This mobile number is already registered.");
       return;
     }
-    // Fix: create user and add to live users list so login works immediately
     const newUser: User = {
       id: `u_${Date.now()}`,
       name: signupName.trim(),
@@ -74,7 +119,6 @@ export default function LoginScreen({
       savedAddresses: {},
     };
     onSignup(newUser);
-    // Auto-fill login form and show success message
     setShowSignup(false);
     setUsername(signupPhone.trim());
     setPassword(signupPassword.trim());
@@ -83,11 +127,11 @@ export default function LoginScreen({
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-sidebar via-[oklch(0.20_0.025_255)] to-[oklch(0.13_0.02_260)] p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-sidebar via-[oklch(0.20_0.025_255)] to-[oklch(0.13_0.02_260)] px-4 py-6">
       {/* Decorative amber glow */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] rounded-full bg-primary/20 blur-[120px] pointer-events-none" />
 
-      <Card className="w-full max-w-md relative z-10 border-border/60 shadow-2xl bg-card">
+      <Card className="w-full max-w-md mx-auto relative z-10 border-border/60 shadow-2xl bg-card">
         <CardHeader className="pb-2 pt-8 text-center">
           <div className="flex items-center justify-center gap-2 mb-2">
             <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
@@ -110,7 +154,7 @@ export default function LoginScreen({
           </p>
         </CardHeader>
 
-        <CardContent className="px-8 pb-8 space-y-6">
+        <CardContent className="px-4 sm:px-8 pb-8 space-y-6">
           {!showSignup ? (
             <>
               {/* Role Tabs */}
@@ -118,8 +162,8 @@ export default function LoginScreen({
                 <Label className="text-xs uppercase tracking-widest text-muted-foreground">
                   Sign in as
                 </Label>
-                <div className="grid grid-cols-3 gap-1 bg-muted p-1 rounded-lg">
-                  {(["rider", "driver", "admin"] as Role[]).map((r) => (
+                <div className="grid grid-cols-2 gap-1 bg-muted p-1 rounded-lg">
+                  {(["rider", "driver"] as Role[]).map((r) => (
                     <button
                       type="button"
                       key={r}
@@ -130,7 +174,7 @@ export default function LoginScreen({
                         setPassword("");
                         setError("");
                       }}
-                      className={`py-2 px-3 rounded-md text-sm font-semibold transition-all capitalize ${
+                      className={`touch-manipulation py-2.5 px-3 rounded-md text-sm font-semibold transition-all capitalize ${
                         role === r
                           ? "bg-primary text-primary-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
@@ -158,7 +202,7 @@ export default function LoginScreen({
                       setUsername(e.target.value);
                       setError("");
                     }}
-                    className="h-10"
+                    className="h-12 text-base"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -175,7 +219,7 @@ export default function LoginScreen({
                       setPassword(e.target.value);
                       setError("");
                     }}
-                    className="h-10"
+                    className="h-12 text-base"
                     onKeyDown={(e) => e.key === "Enter" && handleLogin()}
                   />
                 </div>
@@ -197,7 +241,7 @@ export default function LoginScreen({
               <Button
                 data-ocid="login.submit_button"
                 onClick={handleLogin}
-                className="w-full h-11 bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors"
+                className="touch-manipulation w-full h-12 bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors text-base"
               >
                 Sign In
               </Button>
@@ -211,11 +255,13 @@ export default function LoginScreen({
                     setShowSignup(true);
                     setError("");
                   }}
-                  className="text-primary font-semibold hover:underline"
+                  className="touch-manipulation text-primary font-semibold hover:underline"
                 >
                   Sign Up
                 </button>
               </p>
+
+              <AppDownloadSection />
             </>
           ) : (
             <>
@@ -235,7 +281,7 @@ export default function LoginScreen({
                     type="button"
                     key={r}
                     onClick={() => setRole(r)}
-                    className={`py-2 px-3 rounded-md text-sm font-semibold transition-all capitalize ${
+                    className={`touch-manipulation py-2.5 px-3 rounded-md text-sm font-semibold transition-all capitalize ${
                       role === r
                         ? "bg-primary text-primary-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground"
@@ -257,7 +303,7 @@ export default function LoginScreen({
                       setSignupName(e.target.value);
                       setSignupError("");
                     }}
-                    className="h-10"
+                    className="h-12 text-base"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -270,7 +316,7 @@ export default function LoginScreen({
                       setSignupPhone(e.target.value);
                       setSignupError("");
                     }}
-                    className="h-10"
+                    className="h-12 text-base"
                     type="tel"
                   />
                 </div>
@@ -284,7 +330,7 @@ export default function LoginScreen({
                       setSignupPassword(e.target.value);
                       setSignupError("");
                     }}
-                    className="h-10"
+                    className="h-12 text-base"
                     type="password"
                   />
                 </div>
@@ -302,7 +348,7 @@ export default function LoginScreen({
               <Button
                 data-ocid="signup.submit_button"
                 onClick={handleSignup}
-                className="w-full h-11 bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors"
+                className="touch-manipulation w-full h-12 bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-colors text-base"
               >
                 Create Account
               </Button>
@@ -316,11 +362,13 @@ export default function LoginScreen({
                     setShowSignup(false);
                     setSignupError("");
                   }}
-                  className="text-primary font-semibold hover:underline"
+                  className="touch-manipulation text-primary font-semibold hover:underline"
                 >
                   Sign In
                 </button>
               </p>
+
+              <AppDownloadSection />
             </>
           )}
         </CardContent>

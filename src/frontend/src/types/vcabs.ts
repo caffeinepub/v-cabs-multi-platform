@@ -31,6 +31,7 @@ export interface User {
   documents?: UserDocuments;
   vehicleType?: string;
   vehicleNumber?: string;
+  deletedAt?: string; // soft-delete timestamp
 }
 
 export interface Ride {
@@ -43,6 +44,11 @@ export interface Ride {
   status: RideStatus;
   otp: string;
   createdAt: string;
+  pickupLat?: number;
+  pickupLng?: number;
+  destLat?: number;
+  destLng?: number;
+  distanceKm?: number;
 }
 
 export interface AuditLog {

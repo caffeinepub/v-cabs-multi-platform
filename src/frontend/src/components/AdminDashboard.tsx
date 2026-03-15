@@ -35,10 +35,11 @@ import {
   DollarSign,
   LayoutDashboard,
   LogOut,
+  RotateCcw,
+  Trash2,
   TrendingUp,
   Users,
 } from "lucide-react";
-import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import type {
@@ -81,12 +82,21 @@ interface AdminDashboardProps {
   onToggleUserStatus: (userId: string) => void;
   onAddUser: (user: User) => void;
   onDeleteUser: (userId: string) => void;
+  onRestoreUser: (userId: string) => void;
+  onPermanentDeleteUser: (userId: string) => void;
   rateConfig: RateConfig;
   onSaveRates: (config: RateConfig) => void;
   onLogout: () => void;
 }
 
-type AdminPage = "dashboard" | "users" | "rides" | "audit" | "rates" | "sos";
+type AdminPage =
+  | "dashboard"
+  | "users"
+  | "trash"
+  | "rides"
+  | "audit"
+  | "rates"
+  | "sos";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800",
@@ -105,6 +115,8 @@ export default function AdminDashboard({
   onToggleUserStatus,
   onAddUser,
   onDeleteUser,
+  onRestoreUser,
+  onPermanentDeleteUser,
   rateConfig,
   onSaveRates,
   onLogout,
@@ -117,8 +129,10 @@ export default function AdminDashboard({
   const [newUserRole, setNewUserRole] = useState<"rider" | "driver">("rider");
   const [newUserCity, setNewUserCity] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
+  const [confirmPermanentDelete, setConfirmPermanentDelete] = useState<
+    string | null
+  >(null);
 
-  // Rate management state - initialized from shared rateConfig prop
   const [rideRates, setRideRates] = useState(
     rateConfig.rideRates.map((v) => ({ ...v })),
   );
@@ -136,6 +150,9 @@ export default function AdminDashboard({
     String(rateConfig.nightMultiplier),
   );
   const [vCoinRate, setVCoinRate] = useState(String(rateConfig.vCoinRate));
+
+  const activeUsers = users.filter((u) => !u.deletedAt);
+  const trashedUsers = users.filter((u) => !!u.deletedAt);
 
   const totalRevenue = rides
     .filter((r) => r.status === "completed")
@@ -156,13 +173,24 @@ export default function AdminDashboard({
     maxCount: rides.length,
   }));
 
-  const navItems: { id: AdminPage; label: string; icon: React.ReactNode }[] = [
+  const navItems: {
+    id: AdminPage;
+    label: string;
+    icon: React.ReactNode;
+    badge?: number;
+  }[] = [
     {
       id: "dashboard",
       label: "Dashboard",
       icon: <LayoutDashboard className="w-4 h-4" />,
     },
     { id: "users", label: "Users", icon: <Users className="w-4 h-4" /> },
+    {
+      id: "trash",
+      label: "Trash",
+      icon: <Trash2 className="w-4 h-4" />,
+      badge: trashedUsers.length,
+    },
     { id: "rides", label: "Rides", icon: <Car className="w-4 h-4" /> },
     {
       id: "audit",
@@ -253,11 +281,7 @@ export default function AdminDashboard({
             <button
               type="button"
               key={item.id}
-              data-ocid={
-                item.id === "rates"
-                  ? "admin.rates.tab"
-                  : `admin.${item.id === "audit" ? "audit_log" : item.id}.tab`
-              }
+              data-ocid={`admin.${item.id}.tab`}
               onClick={() => setPage(item.id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 page === item.id
@@ -266,7 +290,12 @@ export default function AdminDashboard({
               }`}
             >
               {item.icon}
-              {item.label}
+              <span className="flex-1 text-left">{item.label}</span>
+              {item.badge && item.badge > 0 ? (
+                <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                  {item.badge}
+                </span>
+              ) : null}
             </button>
           ))}
         </nav>
@@ -303,12 +332,11 @@ export default function AdminDashboard({
                 V Cabs platform overview
               </p>
             </div>
-
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 {
                   label: "Total Users",
-                  value: users.length,
+                  value: activeUsers.length,
                   icon: <Users className="w-5 h-5" />,
                   color: "text-blue-600",
                 },
@@ -347,7 +375,6 @@ export default function AdminDashboard({
                 </Card>
               ))}
             </div>
-
             <Card className="border-border shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Rides by Status</CardTitle>
@@ -388,7 +415,8 @@ export default function AdminDashboard({
                   Users
                 </h1>
                 <p className="text-muted-foreground text-sm">
-                  {users.length} registered users
+                  {activeUsers.filter((u) => u.role !== "admin").length}{" "}
+                  registered users
                 </p>
               </div>
               <Button
@@ -400,7 +428,6 @@ export default function AdminDashboard({
                 + Add User
               </Button>
             </div>
-            {/* City Filter */}
             <div className="flex gap-3 items-center">
               <Label className="text-sm shrink-0">Filter by City:</Label>
               <select
@@ -410,7 +437,9 @@ export default function AdminDashboard({
               >
                 <option value="">All Cities</option>
                 {Array.from(
-                  new Set(users.filter((u) => u.city).map((u) => u.city!)),
+                  new Set(
+                    activeUsers.filter((u) => u.city).map((u) => u.city!),
+                  ),
                 )
                   .sort()
                   .map((city) => (
@@ -434,7 +463,7 @@ export default function AdminDashboard({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users
+                  {activeUsers
                     .filter(
                       (u) =>
                         u.role !== "admin" &&
@@ -479,11 +508,7 @@ export default function AdminDashboard({
                         </TableCell>
                         <TableCell>
                           <span
-                            className={`text-xs px-2 py-1 rounded-full font-medium ${
-                              user.status === "active"
-                                ? "bg-green-100 text-green-800"
-                                : "bg-red-100 text-red-800"
-                            }`}
+                            className={`text-xs px-2 py-1 rounded-full font-medium ${user.status === "active" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
                           >
                             {user.status}
                           </span>
@@ -505,9 +530,10 @@ export default function AdminDashboard({
                               size="sm"
                               variant="ghost"
                               className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+                              title="Move to Trash"
                               onClick={() => {
                                 onDeleteUser(user.id);
-                                toast.success(`User ${user.name} deleted`);
+                                toast.success(`${user.name} moved to Trash`);
                               }}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -519,6 +545,99 @@ export default function AdminDashboard({
                 </TableBody>
               </Table>
             </Card>
+          </div>
+        )}
+
+        {page === "trash" && (
+          <div className="p-6 space-y-4">
+            <div>
+              <h1
+                className="text-2xl font-bold"
+                style={{ fontFamily: "Bricolage Grotesque, sans-serif" }}
+              >
+                Trash
+              </h1>
+              <p className="text-muted-foreground text-sm">
+                {trashedUsers.length} deleted user
+                {trashedUsers.length !== 1 ? "s" : ""} — restore or permanently
+                delete
+              </p>
+            </div>
+            {trashedUsers.length === 0 ? (
+              <Card className="border-border shadow-sm">
+                <CardContent className="py-12 text-center text-muted-foreground">
+                  <Trash2 className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
+                  <p>Trash is empty</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="border-border shadow-sm">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>City</TableHead>
+                      <TableHead>Deleted On</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {trashedUsers.map((user, idx) => (
+                      <TableRow key={user.id} className="opacity-70">
+                        <TableCell className="font-medium">
+                          {user.name}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className="capitalize text-xs"
+                          >
+                            {user.role}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {user.city ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {user.deletedAt
+                            ? new Date(user.deletedAt).toLocaleString()
+                            : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              data-ocid={`admin.trash.restore_button.${idx + 1}`}
+                              size="sm"
+                              variant="outline"
+                              className="text-green-600 border-green-300 hover:bg-green-50 h-8 px-3"
+                              onClick={() => {
+                                onRestoreUser(user.id);
+                                toast.success(
+                                  `${user.name} restored successfully`,
+                                );
+                              }}
+                            >
+                              <RotateCcw className="w-3.5 h-3.5 mr-1" /> Restore
+                            </Button>
+                            <Button
+                              data-ocid={`admin.trash.delete_button.${idx + 1}`}
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+                              title="Permanently delete"
+                              onClick={() => setConfirmPermanentDelete(user.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+            )}
           </div>
         )}
 
@@ -543,6 +662,7 @@ export default function AdminDashboard({
                     <TableHead>Rider</TableHead>
                     <TableHead>Driver</TableHead>
                     <TableHead>Route</TableHead>
+                    <TableHead>Distance</TableHead>
                     <TableHead>Fare</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Date</TableHead>
@@ -569,6 +689,11 @@ export default function AdminDashboard({
                         <p className="truncate text-xs text-muted-foreground">
                           → {ride.destination}
                         </p>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {ride.distanceKm
+                          ? `${ride.distanceKm.toFixed(1)} km`
+                          : "—"}
                       </TableCell>
                       <TableCell>
                         <span className="flex items-center gap-1 text-sm font-medium text-primary">
@@ -710,7 +835,6 @@ export default function AdminDashboard({
               </p>
             </div>
 
-            {/* Section 1: Ride Rates */}
             <Card className="border-border shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -785,12 +909,10 @@ export default function AdminDashboard({
               </CardContent>
             </Card>
 
-            {/* Section 2: Parcel Rates */}
             <Card className="border-border shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <span className="text-base">📦</span>
-                  Parcel Rates
+                  <span className="text-base">📦</span>Parcel Rates
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -857,9 +979,7 @@ export default function AdminDashboard({
                     ))}
                   </TableBody>
                 </Table>
-
                 <Separator />
-
                 <div>
                   <h3 className="text-sm font-semibold mb-3">
                     Weight Surcharges
@@ -905,7 +1025,6 @@ export default function AdminDashboard({
               </CardContent>
             </Card>
 
-            {/* Section 3: Surge Pricing */}
             <Card className="border-border shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -955,7 +1074,6 @@ export default function AdminDashboard({
               </CardContent>
             </Card>
 
-            {/* Section 4: V Coin Rate */}
             <Card className="border-border shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -989,7 +1107,6 @@ export default function AdminDashboard({
               </CardContent>
             </Card>
 
-            {/* Save Button */}
             <div className="flex justify-end pb-4">
               <Button
                 data-ocid="admin.rates.save.button"
@@ -1098,6 +1215,50 @@ export default function AdminDashboard({
               className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               Add User
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Permanent Delete Dialog */}
+      <Dialog
+        open={!!confirmPermanentDelete}
+        onOpenChange={() => setConfirmPermanentDelete(null)}
+      >
+        <DialogContent
+          data-ocid="admin.permanent_delete.dialog"
+          className="sm:max-w-sm"
+        >
+          <DialogHeader>
+            <DialogTitle>Permanently Delete User?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            This action cannot be undone. The user will be removed from the
+            system permanently.
+          </p>
+          <DialogFooter className="gap-2">
+            <Button
+              data-ocid="admin.permanent_delete.cancel_button"
+              variant="outline"
+              onClick={() => setConfirmPermanentDelete(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              data-ocid="admin.permanent_delete.confirm_button"
+              variant="destructive"
+              onClick={() => {
+                if (confirmPermanentDelete) {
+                  const user = users.find(
+                    (u) => u.id === confirmPermanentDelete,
+                  );
+                  onPermanentDeleteUser(confirmPermanentDelete);
+                  toast.success(`${user?.name ?? "User"} permanently deleted`);
+                  setConfirmPermanentDelete(null);
+                }
+              }}
+            >
+              Delete Permanently
             </Button>
           </DialogFooter>
         </DialogContent>
