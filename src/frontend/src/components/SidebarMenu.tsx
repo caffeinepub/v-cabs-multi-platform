@@ -23,9 +23,11 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   AlertTriangle,
   Briefcase,
+  Car,
   Clock,
   Coins,
   CreditCard,
+  FileText,
   Home,
   Mail,
   MapPin,
@@ -37,8 +39,13 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { Ride, User } from "../types/vcabs";
+import type {
+  Ride,
+  User,
+  PaymentRequest as VCabsPaymentRequest,
+} from "../types/vcabs";
 import { formatFare } from "../utils/fareHelper";
+import DocumentUpload from "./DocumentUpload";
 
 const INDIAN_CITIES = [
   "Mumbai",
@@ -70,6 +77,9 @@ interface SidebarMenuProps {
   rides: Ride[];
   onNavigate?: (screen: "sos" | "helpline") => void;
   onUpdateUser?: (updates: Partial<User>) => void;
+  onSubmitPaymentRequest?: (req: VCabsPaymentRequest) => void;
+  paymentRequests?: VCabsPaymentRequest[];
+  adminUpi?: string;
 }
 
 const INITIAL_PAYMENT_METHODS = [
@@ -104,6 +114,9 @@ export default function SidebarMenu({
   rides,
   onNavigate,
   onUpdateUser,
+  onSubmitPaymentRequest,
+  paymentRequests = [],
+  adminUpi = "9999000003@okbizaxis",
 }: SidebarMenuProps) {
   const [editName, setEditName] = useState(currentUser.name);
   const [editPhone, setEditPhone] = useState(currentUser.phone ?? "");
@@ -121,6 +134,11 @@ export default function SidebarMenu({
   const [paymentMethods, setPaymentMethods] = useState(INITIAL_PAYMENT_METHODS);
   const [showAddPayment, setShowAddPayment] = useState(false);
   const [newPmType, setNewPmType] = useState("");
+  // Recharge V Coins state
+  const [rechargeAmount, setRechargeAmount] = useState("");
+  const [rechargeUtr, setRechargeUtr] = useState("");
+  const [rechargeMode, setRechargeMode] = useState("UPI");
+  const [showRecharge, setShowRecharge] = useState(false);
   const [newPmLabel, setNewPmLabel] = useState("");
 
   const myRides = rides.filter(
@@ -130,6 +148,24 @@ export default function SidebarMenu({
   );
   const completedRides = myRides.filter((r) => r.status === "completed");
   const avgRating = currentUser.rating ?? 4.5;
+
+  const [docIdProof, setDocIdProof] = useState(
+    currentUser.documents?.idProof ?? "",
+  );
+  const [docPhoto, setDocPhoto] = useState(currentUser.documents?.photo ?? "");
+
+  const saveDocs = () => {
+    if (onUpdateUser) {
+      onUpdateUser({
+        documents: {
+          ...currentUser.documents,
+          idProof: docIdProof || undefined,
+          photo: docPhoto || undefined,
+        },
+      });
+      toast.success("Documents saved successfully!");
+    }
+  };
 
   const saveProfile = () => {
     if (onUpdateUser) {
@@ -181,6 +217,27 @@ export default function SidebarMenu({
     setNewPmType("");
     setNewPmLabel("");
     setShowAddPayment(false);
+  };
+
+  const submitRechargeRequest = () => {
+    if (!rechargeAmount || Number(rechargeAmount) <= 0 || !rechargeUtr.trim())
+      return;
+    const req: VCabsPaymentRequest = {
+      id: `pr_${Date.now()}`,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userRole: currentUser.role as "rider" | "driver",
+      amountPaid: Number(rechargeAmount),
+      utrOrRef: rechargeUtr.trim(),
+      paymentMode: rechargeMode,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    onSubmitPaymentRequest?.(req);
+    setRechargeAmount("");
+    setRechargeUtr("");
+    setRechargeMode("UPI");
+    setShowRecharge(false);
   };
 
   const initials = currentUser.name
@@ -248,34 +305,49 @@ export default function SidebarMenu({
         </div>
 
         <Tabs defaultValue="profile" className="flex flex-col flex-1 min-h-0">
-          <TabsList className="mx-4 mt-3 mb-0 grid grid-cols-4 bg-muted shrink-0">
+          <TabsList className="mx-4 mt-3 mb-0 grid grid-cols-3 h-auto bg-muted shrink-0">
             <TabsTrigger
               data-ocid="sidebar.profile.tab"
               value="profile"
-              className="text-xs px-1 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              className="text-xs px-1 py-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               Profile
             </TabsTrigger>
             <TabsTrigger
               data-ocid="sidebar.payments.tab"
               value="payments"
-              className="text-xs px-1 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              className="text-xs px-1 py-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               Payments
             </TabsTrigger>
             <TabsTrigger
+              data-ocid="sidebar.myrides.tab"
+              value="myrides"
+              className="text-xs px-1 py-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+            >
+              My Rides
+            </TabsTrigger>
+            <TabsTrigger
               data-ocid="sidebar.history.tab"
               value="history"
-              className="text-xs px-1 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              className="text-xs px-1 py-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               History
             </TabsTrigger>
             <TabsTrigger
               data-ocid="sidebar.ratings.tab"
               value="ratings"
-              className="text-xs px-1 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              className="text-xs px-1 py-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
             >
               Ratings
+            </TabsTrigger>
+            <TabsTrigger
+              data-ocid="sidebar.docs.tab"
+              value="sidedocs"
+              className="text-xs px-1 py-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+            >
+              <FileText className="w-3 h-3 mr-1" />
+              Docs
             </TabsTrigger>
           </TabsList>
 
@@ -514,6 +586,158 @@ export default function SidebarMenu({
                     <CreditCard className="w-4 h-4 mr-2" /> Add Payment Method
                   </Button>
                 )}
+
+                {/* Recharge V Coins */}
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Coins className="w-4 h-4 text-primary" />
+                      <p className="text-sm font-bold text-foreground">
+                        Recharge V Coins
+                      </p>
+                    </div>
+                    <Button
+                      data-ocid="sidebar.recharge.toggle"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs text-primary"
+                      onClick={() => setShowRecharge(!showRecharge)}
+                    >
+                      {showRecharge ? "Hide" : "Pay Now"}
+                    </Button>
+                  </div>
+                  <div className="rounded-lg bg-background border border-border p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">
+                      Pay to Admin UPI:
+                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-foreground break-all">
+                        {adminUpi}
+                      </p>
+                      <Button
+                        data-ocid="sidebar.recharge.copy_upi.button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs flex-shrink-0"
+                        onClick={() => {
+                          navigator.clipboard.writeText(adminUpi);
+                        }}
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Rate: 1 VC = ₹5
+                    </p>
+                  </div>
+                  {showRecharge && (
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          Amount Paid (INR)
+                        </Label>
+                        <input
+                          data-ocid="sidebar.recharge.amount.input"
+                          type="number"
+                          min="1"
+                          placeholder="e.g. 500"
+                          value={rechargeAmount}
+                          onChange={(e) => setRechargeAmount(e.target.value)}
+                          className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                        {rechargeAmount && Number(rechargeAmount) > 0 && (
+                          <p className="text-xs text-primary font-medium">
+                            ≈ {Math.round(Number(rechargeAmount) / 5)} V Coins
+                            will be allocated
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          UTR / Reference Number
+                        </Label>
+                        <input
+                          data-ocid="sidebar.recharge.utr.input"
+                          type="text"
+                          placeholder="UTR or transaction ref"
+                          value={rechargeUtr}
+                          onChange={(e) => setRechargeUtr(e.target.value)}
+                          className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          Payment Mode
+                        </Label>
+                        <Select
+                          value={rechargeMode}
+                          onValueChange={setRechargeMode}
+                        >
+                          <SelectTrigger data-ocid="sidebar.recharge.mode.select">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="UPI">UPI</SelectItem>
+                            <SelectItem value="Cash">Cash</SelectItem>
+                            <SelectItem value="Bank Transfer">
+                              Bank Transfer
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        data-ocid="sidebar.recharge.submit.button"
+                        className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                        onClick={submitRechargeRequest}
+                        disabled={
+                          !rechargeAmount ||
+                          Number(rechargeAmount) <= 0 ||
+                          !rechargeUtr.trim()
+                        }
+                      >
+                        Request V Coin Recharge
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Past Requests */}
+                {paymentRequests.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      My Recharge Requests
+                    </p>
+                    {paymentRequests.map((pr, idx) => (
+                      <div
+                        key={pr.id}
+                        data-ocid={`sidebar.recharge.item.${idx + 1}`}
+                        className="rounded-lg border border-border p-3 space-y-1"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium">
+                            ₹{pr.amountPaid} via {pr.paymentMode}
+                          </span>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${pr.status === "approved" ? "bg-green-100 text-green-800" : pr.status === "rejected" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"}`}
+                          >
+                            {pr.status}
+                          </span>
+                        </div>
+                        {pr.status === "approved" && pr.vCoinsAllocated && (
+                          <p className="text-xs text-primary font-semibold">
+                            +{pr.vCoinsAllocated} VC allocated
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Ref: {pr.utrOrRef}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(pr.createdAt).toLocaleDateString("en-IN")}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </ScrollArea>
           </TabsContent>
@@ -606,6 +830,133 @@ export default function SidebarMenu({
                 >
                   <Star className="w-4 h-4 mr-2" /> Submit Feedback
                 </Button>
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          {/* My Rides Tab */}
+          <TabsContent value="myrides" className="flex-1 min-h-0 mt-3">
+            <ScrollArea className="h-full px-4 pb-6">
+              {myRides.length === 0 ? (
+                <div
+                  data-ocid="sidebar.myrides.empty_state"
+                  className="text-center py-10 text-muted-foreground"
+                >
+                  <Car className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
+                  <p className="text-sm">No rides yet. Book your first ride!</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {myRides
+                    .sort(
+                      (a, b) =>
+                        new Date(b.createdAt).getTime() -
+                        new Date(a.createdAt).getTime(),
+                    )
+                    .map((ride, idx) => {
+                      const isParcel = ride.rideType?.startsWith("📦 Parcel");
+                      const statusColors: Record<string, string> = {
+                        pending:
+                          "bg-yellow-100 text-yellow-800 border-yellow-200",
+                        accepted: "bg-blue-100 text-blue-800 border-blue-200",
+                        in_progress:
+                          "bg-primary/10 text-primary border-primary/20",
+                        completed:
+                          "bg-green-100 text-green-800 border-green-200",
+                        cancelled: "bg-gray-100 text-gray-600 border-gray-200",
+                      };
+                      return (
+                        <div
+                          key={ride.id}
+                          data-ocid={`sidebar.myrides.item.${idx + 1}`}
+                          className="rounded-lg border border-border p-3 space-y-2"
+                        >
+                          <div className="flex items-center justify-between flex-wrap gap-1">
+                            {ride.rideType && (
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded-full border font-medium ${isParcel ? "bg-amber-100 text-amber-800 border-amber-200" : "bg-primary/10 text-primary border-primary/20"}`}
+                              >
+                                {ride.rideType}
+                              </span>
+                            )}
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded-full border font-medium capitalize ${statusColors[ride.status] ?? ""}`}
+                            >
+                              {ride.status.replace("_", " ")}
+                            </span>
+                          </div>
+                          <div className="flex items-start gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0" />
+                            <span className="text-xs text-foreground/80">
+                              {ride.pickup}
+                            </span>
+                          </div>
+                          <div className="flex items-start gap-1.5">
+                            <Navigation className="w-3 h-3 text-muted-foreground mt-0.5 flex-shrink-0" />
+                            <span className="text-xs text-foreground/80">
+                              {ride.destination}
+                            </span>
+                          </div>
+                          <Separator className="my-1" />
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(ride.createdAt).toLocaleDateString(
+                                "en-IN",
+                                {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "numeric",
+                                },
+                              )}
+                            </span>
+                            <span className="text-xs font-bold text-primary">
+                              {formatFare(ride.fare)}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </ScrollArea>
+          </TabsContent>
+
+          {/* Docs Tab */}
+          <TabsContent value="sidedocs" className="flex-1 min-h-0 mt-3">
+            <ScrollArea className="h-full px-4 pb-6">
+              <div className="space-y-4">
+                <div className="rounded-xl bg-primary/5 border border-primary/20 p-3">
+                  <h3 className="text-sm font-semibold flex items-center gap-2 mb-1">
+                    <FileText className="w-4 h-4 text-primary" /> Rider
+                    Documents
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Upload your ID proof and photo for verification
+                  </p>
+                </div>
+                <DocumentUpload
+                  label="ID Proof (Aadhaar / Passport / Driving License)"
+                  value={docIdProof}
+                  onChange={setDocIdProof}
+                  required
+                />
+                <DocumentUpload
+                  label="Profile Photo"
+                  value={docPhoto}
+                  onChange={setDocPhoto}
+                  required
+                />
+                <Button
+                  data-ocid="sidebar.save_docs.button"
+                  onClick={saveDocs}
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  Save Documents
+                </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  Your documents are securely stored and used for identity
+                  verification only.
+                </p>
               </div>
             </ScrollArea>
           </TabsContent>

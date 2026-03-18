@@ -13,6 +13,7 @@ import {
 } from "./data/seedData";
 import type {
   AuditLog,
+  PaymentRequest,
   RateConfig,
   Ride,
   SOSEvent,
@@ -96,6 +97,9 @@ export default function App() {
   const [rateConfig, setRateConfig] = useState<RateConfig>(() =>
     loadFromStorage<RateConfig>("vcabs_rates", DEFAULT_RATE_CONFIG),
   );
+  const [paymentRequests, setPaymentRequests] = useState<PaymentRequest[]>(
+    loadFromStorage<PaymentRequest[]>("vcabs_payments", []),
+  );
 
   useEffect(() => {
     localStorage.setItem("vcabs_users", JSON.stringify(users));
@@ -112,6 +116,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("vcabs_rates", JSON.stringify(rateConfig));
   }, [rateConfig]);
+  useEffect(() => {
+    localStorage.setItem("vcabs_payments", JSON.stringify(paymentRequests));
+  }, [paymentRequests]);
 
   const handleLogin = (user: User) => {
     const latest = users.find((u) => u.id === user.id) ?? user;
@@ -136,7 +143,6 @@ export default function App() {
     setRides((prev) => [ride, ...prev]);
     setTimeout(() => {
       setUsers((currentUsers) => {
-        // Only assign to drivers who are online, active, not deleted, and have NO active trip
         setRides((prevRides) => {
           const activeDriverIds = new Set(
             prevRides
@@ -154,9 +160,32 @@ export default function App() {
               !u.deletedAt &&
               !activeDriverIds.has(u.id),
           );
-          if (eligibleDrivers.length === 0) return prevRides;
+          const getRequiredVehicleTypes = (rideType: string): string[] => {
+            const rt = rideType.toLowerCase();
+            if (rt.includes("bike")) return ["Bike"];
+            if (rt.includes("auto")) return ["Auto"];
+            return ["Cab", "Cab A/c", "Sedan", "Premium XL"];
+          };
+          const requiredTypes = ride.rideType
+            ? getRequiredVehicleTypes(ride.rideType)
+            : null;
+          const typeMatchedDrivers = requiredTypes
+            ? eligibleDrivers.filter(
+                (u) => u.vehicleType && requiredTypes.includes(u.vehicleType),
+              )
+            : eligibleDrivers;
+          if (typeMatchedDrivers.length === 0) {
+            const typeLabel = ride.rideType ?? "vehicle";
+            toast.error(
+              `No ${typeLabel} driver available nearby. Try again shortly.`,
+              { duration: 4000 },
+            );
+            return prevRides;
+          }
           const driver =
-            eligibleDrivers[Math.floor(Math.random() * eligibleDrivers.length)];
+            typeMatchedDrivers[
+              Math.floor(Math.random() * typeMatchedDrivers.length)
+            ];
           toast.success(`Driver ${driver.name} is on the way! (within 5km)`, {
             duration: 4000,
           });
@@ -216,7 +245,6 @@ export default function App() {
     ]);
   };
 
-  // Soft-delete: move to trash
   const deleteUser = (userId: string) => {
     const user = users.find((u) => u.id === userId);
     if (!user) return;
@@ -236,7 +264,6 @@ export default function App() {
     ]);
   };
 
-  // Restore from trash
   const restoreUser = (userId: string) => {
     const user = users.find((u) => u.id === userId);
     if (!user) return;
@@ -254,7 +281,6 @@ export default function App() {
     ]);
   };
 
-  // Permanently delete from trash
   const permanentDeleteUser = (userId: string) => {
     const user = users.find((u) => u.id === userId);
     if (!user) return;
@@ -283,6 +309,75 @@ export default function App() {
     ]);
   };
 
+  const handleSubmitPaymentRequest = (req: PaymentRequest) => {
+    setPaymentRequests((prev) => [req, ...prev]);
+    toast.success(
+      "Payment request submitted! Admin will allocate V Coins shortly.",
+    );
+  };
+
+  const handleApprovePayment = (
+    requestId: string,
+    vCoinsToAllocate: number,
+  ) => {
+    setPaymentRequests((prev) =>
+      prev.map((r) =>
+        r.id === requestId
+          ? {
+              ...r,
+              status: "approved" as const,
+              vCoinsAllocated: vCoinsToAllocate,
+              processedAt: new Date().toISOString(),
+            }
+          : r,
+      ),
+    );
+    const req = paymentRequests.find((r) => r.id === requestId);
+    if (req) {
+      updateUser(req.userId, {
+        vCoins:
+          (users.find((u) => u.id === req.userId)?.vCoins ?? 0) +
+          vCoinsToAllocate,
+      });
+      setAuditLogs((prev) => [
+        {
+          id: `a${Date.now()}`,
+          action: `Approved payment request from ${req.userName}: allocated ${vCoinsToAllocate} V Coins for ₹${req.amountPaid}`,
+          actor: currentUser?.name ?? "admin",
+          timestamp: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+    }
+  };
+
+  const handleRejectPayment = (requestId: string, note: string) => {
+    setPaymentRequests((prev) =>
+      prev.map((r) =>
+        r.id === requestId
+          ? {
+              ...r,
+              status: "rejected" as const,
+              note,
+              processedAt: new Date().toISOString(),
+            }
+          : r,
+      ),
+    );
+    const req = paymentRequests.find((r) => r.id === requestId);
+    if (req) {
+      setAuditLogs((prev) => [
+        {
+          id: `a${Date.now()}`,
+          action: `Rejected payment request from ${req.userName} for ₹${req.amountPaid}${note ? `: ${note}` : ""}`,
+          actor: currentUser?.name ?? "admin",
+          timestamp: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+    }
+  };
+
   return (
     <>
       <Toaster position="top-right" richColors />
@@ -302,6 +397,16 @@ export default function App() {
           savedLocations={savedLocations}
           onLogout={handleLogout}
           rateConfig={rateConfig}
+          onlineDriverCount={
+            users.filter(
+              (u) => u.role === "driver" && u.isOnline && !u.deletedAt,
+            ).length
+          }
+          onSubmitPaymentRequest={handleSubmitPaymentRequest}
+          paymentRequests={paymentRequests.filter(
+            (r) => r.userId === currentUser.id,
+          )}
+          adminUpi="9999000003@okbizaxis"
         />
       ) : currentUser.role === "driver" ? (
         <DriverApp
@@ -312,6 +417,11 @@ export default function App() {
           onAddSOS={addSOS}
           savedLocations={savedLocations}
           onLogout={handleLogout}
+          onSubmitPaymentRequest={handleSubmitPaymentRequest}
+          paymentRequests={paymentRequests.filter(
+            (r) => r.userId === currentUser.id,
+          )}
+          adminUpi="9999000003@okbizaxis"
         />
       ) : (
         <AdminDashboard
@@ -321,12 +431,15 @@ export default function App() {
           auditLogs={auditLogs}
           sosEvents={sosEvents}
           rateConfig={rateConfig}
+          paymentRequests={paymentRequests}
           onToggleUserStatus={toggleUserStatus}
           onAddUser={addUser}
           onDeleteUser={deleteUser}
           onRestoreUser={restoreUser}
           onPermanentDeleteUser={permanentDeleteUser}
           onSaveRates={handleSaveRates}
+          onApprovePayment={handleApprovePayment}
+          onRejectPayment={handleRejectPayment}
           onLogout={handleLogout}
         />
       )}

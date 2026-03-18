@@ -22,11 +22,13 @@ import {
   MessageCircle,
   Navigation,
   Package,
+  XCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { seedUsers } from "../data/seedData";
 import type {
+  PaymentRequest,
   RateConfig,
   Ride,
   SOSEvent,
@@ -174,6 +176,10 @@ interface RiderAppProps {
   savedLocations: SavedLocation[];
   onLogout: () => void;
   rateConfig?: RateConfig;
+  onlineDriverCount?: number;
+  onSubmitPaymentRequest?: (req: PaymentRequest) => void;
+  paymentRequests?: PaymentRequest[];
+  adminUpi?: string;
 }
 
 export default function RiderApp({
@@ -185,6 +191,10 @@ export default function RiderApp({
   savedLocations,
   onLogout,
   rateConfig,
+  onlineDriverCount = 0,
+  onSubmitPaymentRequest,
+  paymentRequests = [],
+  adminUpi = "9999000003@okbizaxis",
 }: RiderAppProps) {
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");
@@ -228,10 +238,22 @@ export default function RiderApp({
   );
   const [docPhoto, setDocPhoto] = useState(currentUser.documents?.photo ?? "");
 
+  const [driverCancelDismissed, setDriverCancelDismissed] = useState<
+    string | null
+  >(null);
+
   const myRides = rides.filter((r) => r.riderId === currentUser.id);
   const activeRide = myRides.find((r) =>
     ["pending", "accepted", "in_progress"].includes(r.status),
   ) as (Ride & { rideType?: string }) | undefined;
+
+  // Detect if a ride was cancelled by driver (not yet dismissed)
+  const driverCancelledRide = myRides.find(
+    (r) =>
+      r.status === "cancelled" &&
+      (r as any).cancelledBy === "driver" &&
+      r.id !== driverCancelDismissed,
+  ) as (Ride & { rideType?: string; cancellationReason?: string }) | undefined;
 
   const mapStatus =
     (activeRide?.status as
@@ -506,7 +528,7 @@ export default function RiderApp({
 
       <main className="flex-1 px-4 py-4 space-y-4 max-w-2xl mx-auto w-full">
         <Tabs defaultValue="ride">
-          <TabsList className="grid grid-cols-4 bg-muted">
+          <TabsList className="grid grid-cols-2 bg-muted">
             <TabsTrigger
               data-ocid="rider.ride.tab"
               value="ride"
@@ -523,21 +545,6 @@ export default function RiderApp({
               <Package className="w-3.5 h-3.5 mr-1" />
               Parcel
             </TabsTrigger>
-            <TabsTrigger
-              data-ocid="rider.rides.tab"
-              value="rides"
-              className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              My Rides
-            </TabsTrigger>
-            <TabsTrigger
-              data-ocid="rider.docs.tab"
-              value="docs"
-              className="text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              <FileText className="w-3.5 h-3.5 mr-1" />
-              Docs
-            </TabsTrigger>
           </TabsList>
 
           {/* Book Ride */}
@@ -548,6 +555,89 @@ export default function RiderApp({
               destination={mapDest}
               rideType={mapRideType}
             />
+            {/* Real Google Maps iframe */}
+            <div className="relative rounded-xl overflow-hidden border border-border shadow-sm">
+              {activeRide?.pickup && activeRide.destination ? (
+                <iframe
+                  key={`map-${activeRide.id}`}
+                  title="Route Map"
+                  width="100%"
+                  height="220"
+                  style={{ border: 0, display: "block" }}
+                  loading="lazy"
+                  allowFullScreen
+                  src={`https://www.google.com/maps/embed/v1/directions?key=AIzaSyD6zE6gH2L5mDH7vQkFwXS3qFkNJtGhZmA&origin=${encodeURIComponent(activeRide.pickup)}&destination=${encodeURIComponent(activeRide.destination)}&mode=driving`}
+                />
+              ) : (
+                <iframe
+                  title="City Map"
+                  width="100%"
+                  height="220"
+                  style={{ border: 0, display: "block" }}
+                  loading="lazy"
+                  allowFullScreen
+                  src={`https://www.google.com/maps/embed/v1/view?key=AIzaSyD6zE6gH2L5mDH7vQkFwXS3qFkNJtGhZmA&center=${pickupCoords ? `${pickupCoords.lat},${pickupCoords.lng}` : "20.5937,78.9629"}&zoom=${pickupCoords ? 14 : 5}`}
+                />
+              )}
+              {onlineDriverCount > 0 && (
+                <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-sm text-xs font-semibold text-green-700 px-2.5 py-1 rounded-full shadow-sm flex items-center gap-1.5 border border-green-200">
+                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block" />
+                  {onlineDriverCount} driver{onlineDriverCount !== 1 ? "s" : ""}{" "}
+                  available nearby
+                </div>
+              )}
+            </div>
+
+            {/* Driver cancellation alert */}
+            {driverCancelledRide && (
+              <div
+                data-ocid="rider.driver_cancelled.error_state"
+                className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 space-y-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    <XCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-destructive">
+                        Your driver has cancelled the ride.
+                      </p>
+                      {(driverCancelledRide as any).cancellationReason && (
+                        <p className="text-xs text-destructive/80 mt-0.5">
+                          Reason:{" "}
+                          {(driverCancelledRide as any).cancellationReason}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDriverCancelDismissed(driverCancelledRide.id)
+                    }
+                    className="text-destructive/60 hover:text-destructive"
+                    aria-label="Dismiss"
+                  >
+                    <XCircle className="w-4 h-4" />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  data-ocid="rider.book_again.button"
+                  onClick={() => {
+                    setDriverCancelDismissed(driverCancelledRide.id);
+                    setPickup("");
+                    setDestination("");
+                    setPickupCoords(null);
+                    setDestCoords(null);
+                    setEstimatedFare(null);
+                    setEstimatedDistanceKm(null);
+                  }}
+                  className="w-full py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+                >
+                  Book Again
+                </button>
+              </div>
+            )}
 
             <Card className="border-border shadow-sm">
               <CardHeader className="pb-3">
@@ -715,6 +805,31 @@ export default function RiderApp({
               destination={mapDest}
               rideType={mapRideType}
             />
+            {/* Real Google Maps iframe */}
+            <div className="relative rounded-xl overflow-hidden border border-border shadow-sm">
+              {parcelSender && parcelReceiver ? (
+                <iframe
+                  key={`pmap-${parcelSender}-${parcelReceiver}`}
+                  title="Parcel Route Map"
+                  width="100%"
+                  height="180"
+                  style={{ border: 0, display: "block" }}
+                  loading="lazy"
+                  allowFullScreen
+                  src={`https://www.google.com/maps/embed/v1/directions?key=AIzaSyD6zE6gH2L5mDH7vQkFwXS3qFkNJtGhZmA&origin=${encodeURIComponent(parcelSender)}&destination=${encodeURIComponent(parcelReceiver)}&mode=driving`}
+                />
+              ) : (
+                <iframe
+                  title="India Map"
+                  width="100%"
+                  height="180"
+                  style={{ border: 0, display: "block" }}
+                  loading="lazy"
+                  allowFullScreen
+                  src="https://www.google.com/maps/embed/v1/view?key=AIzaSyD6zE6gH2L5mDH7vQkFwXS3qFkNJtGhZmA&center=20.5937,78.9629&zoom=5"
+                />
+              )}
+            </div>
 
             <Card className="border-border shadow-sm">
               <CardHeader className="pb-3">
@@ -1012,6 +1127,22 @@ export default function RiderApp({
                         )}
                       </div>
 
+                      {/* Driver cancellation reason in history */}
+                      {ride.status === "cancelled" &&
+                        (ride as any).cancelledBy === "driver" && (
+                          <div className="mt-2 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2">
+                            <p className="text-xs font-semibold text-destructive flex items-center gap-1">
+                              <XCircle className="w-3.5 h-3.5" /> Cancelled by
+                              Driver
+                            </p>
+                            {(ride as any).cancellationReason && (
+                              <p className="text-xs text-destructive/70 mt-0.5">
+                                Reason: {(ride as any).cancellationReason}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
                       {/* OTP shown to Rider when accepted or in_progress so they can share with driver */}
                       {(ride.status === "accepted" ||
                         ride.status === "in_progress") && (
@@ -1095,6 +1226,9 @@ export default function RiderApp({
         rides={rides}
         onNavigate={(screen) => setActiveScreen(screen)}
         onUpdateUser={(updates) => onUpdateUser(currentUser.id, updates)}
+        onSubmitPaymentRequest={onSubmitPaymentRequest}
+        paymentRequests={paymentRequests}
+        adminUpi={adminUpi}
       />
     </div>
   );

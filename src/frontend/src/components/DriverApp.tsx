@@ -2,6 +2,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -11,6 +18,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   AlertTriangle,
   Car,
@@ -34,7 +42,13 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { seedUsers } from "../data/seedData";
-import type { Ride, SOSEvent, SavedLocation, User } from "../types/vcabs";
+import type {
+  PaymentRequest,
+  Ride,
+  SOSEvent,
+  SavedLocation,
+  User,
+} from "../types/vcabs";
 import { formatFare } from "../utils/fareHelper";
 import DocumentUpload from "./DocumentUpload";
 import HelplineChat from "./HelplineChat";
@@ -73,6 +87,9 @@ interface DriverAppProps {
   onAddSOS: (event: SOSEvent) => void;
   savedLocations: SavedLocation[];
   onLogout: () => void;
+  onSubmitPaymentRequest?: (req: PaymentRequest) => void;
+  paymentRequests?: PaymentRequest[];
+  adminUpi?: string;
 }
 
 function openNavigation(location: string) {
@@ -89,8 +106,16 @@ export default function DriverApp({
   onUpdateUser,
   onAddSOS,
   onLogout,
+  onSubmitPaymentRequest,
+  paymentRequests = [],
+  adminUpi = "9999000003@okbizaxis",
 }: DriverAppProps) {
   const [otpInputs, setOtpInputs] = useState<Record<string, string>>({});
+  const [cancelModalRideId, setCancelModalRideId] = useState<string | null>(
+    null,
+  );
+  const [cancelReason, setCancelReason] = useState<string>("");
+  const [customReason, setCustomReason] = useState<string>("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeScreen, setActiveScreen] = useState<"home" | "sos" | "helpline">(
     "home",
@@ -104,6 +129,10 @@ export default function DriverApp({
   );
   const [upiList, setUpiList] = useState<string[]>(["9999000003@okbizaxis"]);
   const [newUpi, setNewUpi] = useState("");
+  const [rechargeAmount, setRechargeAmount] = useState("");
+  const [rechargeUtr, setRechargeUtr] = useState("");
+  const [rechargeMode, setRechargeMode] = useState("UPI");
+  const [showRecharge, setShowRecharge] = useState(false);
 
   const [docIdProof, setDocIdProof] = useState(
     currentUser.documents?.idProof ?? "",
@@ -223,8 +252,79 @@ export default function DriverApp({
   };
 
   const completeTrip = (rideId: string) => {
-    onUpdateRide(rideId, { status: "completed" });
-    toast.success("Trip completed! Great job!");
+    const ride = rides.find((r) => r.id === rideId);
+    const VEHICLE_RATES: Record<string, number> = {
+      Bike: 8,
+      Auto: 12,
+      Cab: 15,
+      "Cab A/c": 18,
+      Sedan: 20,
+      "Premium XL": 25,
+    };
+    if (
+      ride &&
+      ride.pickupLat != null &&
+      ride.pickupLng != null &&
+      ride.destLat != null &&
+      ride.destLng != null
+    ) {
+      const R = 6371;
+      const dLat = ((ride.destLat - ride.pickupLat) * Math.PI) / 180;
+      const dLng = ((ride.destLng - ride.pickupLng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((ride.pickupLat * Math.PI) / 180) *
+          Math.cos((ride.destLat * Math.PI) / 180) *
+          Math.sin(dLng / 2) ** 2;
+      const straightKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const actualKm = straightKm * 1.4;
+      const rideTypeName = (ride.rideType ?? "")
+        .replace(/^[^\w]*/, "")
+        .split(" ")[0];
+      const baseRate = VEHICLE_RATES[rideTypeName] ?? 12;
+      const newFare = Math.max(30, Math.round(actualKm * baseRate));
+      onUpdateRide(rideId, {
+        status: "completed",
+        distanceKm: actualKm,
+        fare: newFare,
+      });
+      toast.success(
+        `Trip completed! Distance: ${actualKm.toFixed(1)} km · Fare: ₹${newFare}`,
+        { duration: 5000 },
+      );
+    } else {
+      onUpdateRide(rideId, { status: "completed" });
+      toast.success("Trip completed! Great job!");
+    }
+  };
+
+  const CANCEL_REASONS = [
+    "Heavy Traffic",
+    "Customer Rude",
+    "Customer Drunk / Intoxicated",
+    "Vehicle Breakdown",
+    "Emergency",
+    "Wrong Location / Address Error",
+    "Other",
+  ];
+
+  const cancelRide = () => {
+    if (!cancelModalRideId) return;
+    const reason =
+      cancelReason === "Other" ? customReason.trim() : cancelReason;
+    if (!reason) {
+      toast.error("Please select a cancellation reason.");
+      return;
+    }
+    onUpdateRide(cancelModalRideId, {
+      status: "cancelled",
+      cancelledBy: "driver",
+      cancellationReason: reason,
+    });
+    setCancelModalRideId(null);
+    setCancelReason("");
+    setCustomReason("");
+    toast.success("Ride cancelled. You can now accept new rides.");
   };
 
   const getRiderName = (riderId: string) =>
@@ -631,6 +731,23 @@ export default function DriverApp({
                         <CheckCircle className="w-4 h-4 mr-2" /> Complete Trip
                       </Button>
                     )}
+
+                    {/* Cancel Ride button for accepted/in_progress */}
+                    {(ride.status === "accepted" ||
+                      ride.status === "in_progress") && (
+                      <Button
+                        data-ocid={`driver.cancel_ride.button.${idx + 1}`}
+                        variant="outline"
+                        className="w-full border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                        onClick={() => {
+                          setCancelModalRideId(ride.id);
+                          setCancelReason("");
+                          setCustomReason("");
+                        }}
+                      >
+                        <XCircle className="w-4 h-4 mr-2" /> Cancel Ride
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               ))
@@ -1006,6 +1123,185 @@ export default function DriverApp({
               </CardContent>
             </Card>
 
+            {/* Recharge V Coins */}
+            <Card className="border-border shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Coins className="w-4 h-4 text-primary" />
+                  Recharge V Coins
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 space-y-1">
+                  <p className="text-xs text-muted-foreground">
+                    Pay to Admin UPI:
+                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold break-all">
+                      {adminUpi}
+                    </p>
+                    <Button
+                      data-ocid="driver.recharge.copy_upi.button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs flex-shrink-0"
+                      onClick={() => {
+                        navigator.clipboard.writeText(adminUpi);
+                      }}
+                    >
+                      Copy
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Rate: 1 VC = ₹5
+                  </p>
+                </div>
+                <Button
+                  data-ocid="driver.recharge.toggle"
+                  variant="outline"
+                  className="w-full border-primary/40 text-primary hover:bg-primary/5"
+                  onClick={() => setShowRecharge(!showRecharge)}
+                >
+                  {showRecharge ? "Hide Form" : "Submit Payment Request"}
+                </Button>
+                {showRecharge && (
+                  <div className="space-y-3 pt-1">
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor="driver-recharge-amount"
+                        className="text-xs text-muted-foreground font-medium"
+                      >
+                        Amount Paid (INR)
+                      </label>
+                      <input
+                        id="driver-recharge-amount"
+                        data-ocid="driver.recharge.amount.input"
+                        type="number"
+                        min="1"
+                        placeholder="e.g. 500"
+                        value={rechargeAmount}
+                        onChange={(e) => setRechargeAmount(e.target.value)}
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      {rechargeAmount && Number(rechargeAmount) > 0 && (
+                        <p className="text-xs text-primary font-medium">
+                          ≈ {Math.round(Number(rechargeAmount) / 5)} V Coins
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor="driver-recharge-utr"
+                        className="text-xs text-muted-foreground font-medium"
+                      >
+                        UTR / Reference Number
+                      </label>
+                      <input
+                        id="driver-recharge-utr"
+                        data-ocid="driver.recharge.utr.input"
+                        type="text"
+                        placeholder="UTR or transaction ref"
+                        value={rechargeUtr}
+                        onChange={(e) => setRechargeUtr(e.target.value)}
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor="driver-recharge-mode"
+                        className="text-xs text-muted-foreground font-medium"
+                      >
+                        Payment Mode
+                      </label>
+                      <Select
+                        value={rechargeMode}
+                        onValueChange={setRechargeMode}
+                      >
+                        <SelectTrigger data-ocid="driver.recharge.mode.select">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="UPI">UPI</SelectItem>
+                          <SelectItem value="Cash">Cash</SelectItem>
+                          <SelectItem value="Bank Transfer">
+                            Bank Transfer
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      data-ocid="driver.recharge.submit.button"
+                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                      disabled={
+                        !rechargeAmount ||
+                        Number(rechargeAmount) <= 0 ||
+                        !rechargeUtr.trim()
+                      }
+                      onClick={() => {
+                        if (
+                          !rechargeAmount ||
+                          Number(rechargeAmount) <= 0 ||
+                          !rechargeUtr.trim()
+                        )
+                          return;
+                        const req: PaymentRequest = {
+                          id: `pr_${Date.now()}`,
+                          userId: currentUser.id,
+                          userName: currentUser.name,
+                          userRole: "driver",
+                          amountPaid: Number(rechargeAmount),
+                          utrOrRef: rechargeUtr.trim(),
+                          paymentMode: rechargeMode,
+                          status: "pending",
+                          createdAt: new Date().toISOString(),
+                        };
+                        onSubmitPaymentRequest?.(req);
+                        setRechargeAmount("");
+                        setRechargeUtr("");
+                        setRechargeMode("UPI");
+                        setShowRecharge(false);
+                      }}
+                    >
+                      Request V Coin Recharge
+                    </Button>
+                  </div>
+                )}
+                {paymentRequests.length > 0 && (
+                  <div className="space-y-2 pt-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      My Requests
+                    </p>
+                    {paymentRequests.map((pr, idx) => (
+                      <div
+                        key={pr.id}
+                        data-ocid={`driver.recharge.item.${idx + 1}`}
+                        className="rounded-lg border border-border p-3 space-y-1"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium">
+                            ₹{pr.amountPaid} via {pr.paymentMode}
+                          </span>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${pr.status === "approved" ? "bg-green-100 text-green-800" : pr.status === "rejected" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"}`}
+                          >
+                            {pr.status}
+                          </span>
+                        </div>
+                        {pr.status === "approved" && pr.vCoinsAllocated && (
+                          <p className="text-xs text-primary font-semibold">
+                            +{pr.vCoinsAllocated} VC allocated
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Ref: {pr.utrOrRef}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <p className="text-xs text-center text-muted-foreground pb-2">
               Payments in ₹ (INR). Plans auto-renew. Cancel anytime.
             </p>
@@ -1033,6 +1329,87 @@ export default function DriverApp({
         onNavigate={(screen) => setActiveScreen(screen)}
         onUpdateUser={(updates) => onUpdateUser(currentUser.id, updates)}
       />
+
+      {/* Cancel Ride Modal */}
+      <Dialog
+        open={!!cancelModalRideId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCancelModalRideId(null);
+            setCancelReason("");
+            setCustomReason("");
+          }
+        }}
+      >
+        <DialogContent
+          className="max-w-sm mx-auto rounded-2xl"
+          data-ocid="driver.cancel_ride.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <XCircle className="w-5 h-5" /> Cancel Ride
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground mb-1">
+            Select a reason for cancellation:
+          </p>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {CANCEL_REASONS.map((reason) => (
+              <button
+                key={reason}
+                type="button"
+                data-ocid="driver.cancel_reason.toggle"
+                onClick={() => {
+                  setCancelReason(reason);
+                  if (reason !== "Other") setCustomReason("");
+                }}
+                className={`w-full text-left px-4 py-3 rounded-xl border text-sm font-medium transition-all ${
+                  cancelReason === reason
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-background hover:border-primary/50 hover:bg-muted/50"
+                }`}
+              >
+                {reason}
+              </button>
+            ))}
+          </div>
+          {cancelReason === "Other" && (
+            <Textarea
+              data-ocid="driver.cancel_reason.custom.textarea"
+              placeholder="Describe the reason..."
+              value={customReason}
+              onChange={(e) => setCustomReason(e.target.value)}
+              className="mt-2"
+              rows={3}
+            />
+          )}
+          <DialogFooter className="flex gap-2 mt-2">
+            <Button
+              data-ocid="driver.cancel_ride.cancel_button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                setCancelModalRideId(null);
+                setCancelReason("");
+                setCustomReason("");
+              }}
+            >
+              Go Back
+            </Button>
+            <Button
+              data-ocid="driver.cancel_ride.confirm_button"
+              className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={cancelRide}
+              disabled={
+                !cancelReason ||
+                (cancelReason === "Other" && !customReason.trim())
+              }
+            >
+              <XCircle className="w-4 h-4 mr-2" /> Cancel Ride
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

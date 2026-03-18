@@ -39,11 +39,13 @@ import {
   Trash2,
   TrendingUp,
   Users,
+  Wallet,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import type {
   AuditLog,
+  PaymentRequest,
   RateConfig,
   Ride,
   SOSEvent,
@@ -87,6 +89,9 @@ interface AdminDashboardProps {
   rateConfig: RateConfig;
   onSaveRates: (config: RateConfig) => void;
   onLogout: () => void;
+  paymentRequests?: PaymentRequest[];
+  onApprovePayment?: (requestId: string, vCoinsToAllocate: number) => void;
+  onRejectPayment?: (requestId: string, note: string) => void;
 }
 
 type AdminPage =
@@ -96,7 +101,8 @@ type AdminPage =
   | "rides"
   | "audit"
   | "rates"
-  | "sos";
+  | "sos"
+  | "payments";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800",
@@ -120,6 +126,9 @@ export default function AdminDashboard({
   rateConfig,
   onSaveRates,
   onLogout,
+  paymentRequests = [],
+  onApprovePayment,
+  onRejectPayment,
 }: AdminDashboardProps) {
   const [page, setPage] = useState<AdminPage>("dashboard");
   const [cityFilter, setCityFilter] = useState<string>("");
@@ -129,9 +138,17 @@ export default function AdminDashboard({
   const [newUserRole, setNewUserRole] = useState<"rider" | "driver">("rider");
   const [newUserCity, setNewUserCity] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserVehicleType, setNewUserVehicleType] = useState("");
+  const [newUserVehicleNumber, setNewUserVehicleNumber] = useState("");
+  const [newUserVehicleModel, setNewUserVehicleModel] = useState("");
+  const [usersTab, setUsersTab] = useState<"riders" | "drivers">("riders");
   const [confirmPermanentDelete, setConfirmPermanentDelete] = useState<
     string | null
   >(null);
+  const [approveDialogId, setApproveDialogId] = useState<string | null>(null);
+  const [approveVCoins, setApproveVCoins] = useState("");
+  const [rejectDialogId, setRejectDialogId] = useState<string | null>(null);
+  const [rejectNote, setRejectNote] = useState("");
 
   const [rideRates, setRideRates] = useState(
     rateConfig.rideRates.map((v) => ({ ...v })),
@@ -207,6 +224,14 @@ export default function AdminDashboard({
       label: "SOS Alerts",
       icon: <Activity className="w-4 h-4 text-red-500" />,
     },
+    {
+      id: "payments",
+      label: "Payments",
+      icon: <Wallet className="w-4 h-4 text-primary" />,
+      badge:
+        paymentRequests.filter((r) => r.status === "pending").length ||
+        undefined,
+    },
   ];
 
   const getUserName = (id: string) =>
@@ -245,6 +270,11 @@ export default function AdminDashboard({
       vCoins: 100,
       rating: 4.5,
       isOnline: false,
+      ...(newUserRole === "driver" && {
+        vehicleType: newUserVehicleType || undefined,
+        vehicleNumber: newUserVehicleNumber.trim() || undefined,
+        vehicleModel: newUserVehicleModel.trim() || undefined,
+      }),
     } as User;
     onAddUser(newUser);
     toast.success(`User ${newUser.name} added successfully`);
@@ -254,6 +284,9 @@ export default function AdminDashboard({
     setNewUserRole("rider");
     setNewUserCity("");
     setNewUserPassword("");
+    setNewUserVehicleType("");
+    setNewUserVehicleNumber("");
+    setNewUserVehicleModel("");
   };
 
   return (
@@ -428,6 +461,28 @@ export default function AdminDashboard({
                 + Add User
               </Button>
             </div>
+
+            {/* Riders / Drivers tab switcher */}
+            <div className="flex gap-0 border-b border-border">
+              {(["riders", "drivers"] as const).map((tab) => (
+                <button
+                  type="button"
+                  key={tab}
+                  data-ocid={`admin.users.${tab}.tab`}
+                  onClick={() => setUsersTab(tab)}
+                  className={`px-5 py-2.5 text-sm font-semibold capitalize transition-all border-b-2 -mb-px ${
+                    usersTab === tab
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {tab === "riders"
+                    ? `Riders (${activeUsers.filter((u) => u.role === "rider").length})`
+                    : `Drivers (${activeUsers.filter((u) => u.role === "driver").length})`}
+                </button>
+              ))}
+            </div>
+
             <div className="flex gap-3 items-center">
               <Label className="text-sm shrink-0">Filter by City:</Label>
               <select
@@ -449,102 +504,229 @@ export default function AdminDashboard({
                   ))}
               </select>
             </div>
-            <Card className="border-border shadow-sm">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>City</TableHead>
-                    <TableHead>V Coins</TableHead>
-                    <TableHead>Docs</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {activeUsers
-                    .filter(
-                      (u) =>
-                        u.role !== "admin" &&
-                        (!cityFilter || u.city === cityFilter),
-                    )
-                    .map((user, idx) => (
-                      <TableRow key={user.id}>
-                        <TableCell className="font-medium">
-                          {user.name}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className="capitalize text-xs"
-                          >
-                            {user.role}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {user.city ?? "—"}
-                        </TableCell>
-                        <TableCell>
-                          <span className="flex items-center gap-1 text-sm">
-                            <Coins className="w-3.5 h-3.5 text-primary" />
-                            {user.vCoins}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {user.documents ? (
-                            <span className="text-green-600 text-xs font-medium">
-                              {
-                                Object.values(user.documents).filter(Boolean)
-                                  .length
-                              }{" "}
-                              uploaded
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">
-                              None
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <span
-                            className={`text-xs px-2 py-1 rounded-full font-medium ${user.status === "active" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
-                          >
-                            {user.status}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Switch
-                              data-ocid={`admin.user.toggle.${idx + 1}`}
-                              checked={user.status === "active"}
-                              onCheckedChange={() => {
-                                onToggleUserStatus(user.id);
-                                toast.success(
-                                  `User ${user.name} ${user.status === "active" ? "suspended" : "activated"}`,
-                                );
-                              }}
-                            />
-                            <Button
-                              data-ocid={`admin.user.delete_button.${idx + 1}`}
-                              size="sm"
-                              variant="ghost"
-                              className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
-                              title="Move to Trash"
-                              onClick={() => {
-                                onDeleteUser(user.id);
-                                toast.success(`${user.name} moved to Trash`);
-                              }}
+
+            {/* RIDERS TAB */}
+            {usersTab === "riders" && (
+              <Card className="border-border shadow-sm overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Mobile</TableHead>
+                      <TableHead>City</TableHead>
+                      <TableHead>Rides</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {activeUsers
+                      .filter(
+                        (u) =>
+                          u.role === "rider" &&
+                          (!cityFilter || u.city === cityFilter),
+                      )
+                      .map((user, idx) => (
+                        <TableRow
+                          key={user.id}
+                          data-ocid={`admin.riders.item.${idx + 1}`}
+                        >
+                          <TableCell className="font-medium">
+                            {user.name}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground font-mono">
+                            {user.phone ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {user.city ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {
+                              rides.filter(
+                                (r) =>
+                                  r.riderId === user.id &&
+                                  r.status === "completed",
+                              ).length
+                            }
+                          </TableCell>
+                          <TableCell>
+                            <span
+                              className={`text-xs px-2 py-1 rounded-full font-medium ${user.status === "active" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
                             >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
+                              {user.status}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Switch
+                                data-ocid={`admin.rider.toggle.${idx + 1}`}
+                                checked={user.status === "active"}
+                                onCheckedChange={() => {
+                                  onToggleUserStatus(user.id);
+                                  toast.success(
+                                    `${user.name} ${user.status === "active" ? "suspended" : "activated"}`,
+                                  );
+                                }}
+                              />
+                              <Button
+                                data-ocid={`admin.rider.delete_button.${idx + 1}`}
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+                                title="Move to Trash"
+                                onClick={() => {
+                                  onDeleteUser(user.id);
+                                  toast.success(`${user.name} moved to Trash`);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    {activeUsers.filter(
+                      (u) =>
+                        u.role === "rider" &&
+                        (!cityFilter || u.city === cityFilter),
+                    ).length === 0 && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={6}
+                          className="text-center py-10 text-muted-foreground"
+                          data-ocid="admin.riders.empty_state"
+                        >
+                          No riders found
                         </TableCell>
                       </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
-            </Card>
+                    )}
+                  </TableBody>
+                </Table>
+              </Card>
+            )}
+
+            {/* DRIVERS TAB */}
+            {usersTab === "drivers" && (
+              <Card className="border-border shadow-sm">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Mobile</TableHead>
+                        <TableHead>City</TableHead>
+                        <TableHead>Vehicle Type</TableHead>
+                        <TableHead>Vehicle No</TableHead>
+                        <TableHead>Vehicle Model</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {activeUsers
+                        .filter(
+                          (u) =>
+                            u.role === "driver" &&
+                            (!cityFilter || u.city === cityFilter),
+                        )
+                        .map((user, idx) => (
+                          <TableRow
+                            key={user.id}
+                            data-ocid={`admin.drivers.item.${idx + 1}`}
+                          >
+                            <TableCell className="font-medium whitespace-nowrap">
+                              {user.name}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground font-mono whitespace-nowrap">
+                              {user.phone ?? "—"}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                              {user.city ?? "—"}
+                            </TableCell>
+                            <TableCell>
+                              {user.vehicleType ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs capitalize whitespace-nowrap"
+                                >
+                                  {user.vehicleType}
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">
+                                  —
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm font-mono whitespace-nowrap">
+                              {user.vehicleNumber ?? (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm whitespace-nowrap">
+                              {user.vehicleModel ?? (
+                                <span className="text-muted-foreground text-xs">
+                                  N/A
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${user.status === "active" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
+                              >
+                                {user.status}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <Switch
+                                  data-ocid={`admin.driver.toggle.${idx + 1}`}
+                                  checked={user.status === "active"}
+                                  onCheckedChange={() => {
+                                    onToggleUserStatus(user.id);
+                                    toast.success(
+                                      `${user.name} ${user.status === "active" ? "suspended" : "activated"}`,
+                                    );
+                                  }}
+                                />
+                                <Button
+                                  data-ocid={`admin.driver.delete_button.${idx + 1}`}
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+                                  title="Move to Trash"
+                                  onClick={() => {
+                                    onDeleteUser(user.id);
+                                    toast.success(
+                                      `${user.name} moved to Trash`,
+                                    );
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      {activeUsers.filter(
+                        (u) =>
+                          u.role === "driver" &&
+                          (!cityFilter || u.city === cityFilter),
+                      ).length === 0 && (
+                        <TableRow>
+                          <TableCell
+                            colSpan={8}
+                            className="text-center py-10 text-muted-foreground"
+                            data-ocid="admin.drivers.empty_state"
+                          >
+                            No drivers found
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </Card>
+            )}
           </div>
         )}
 
@@ -702,11 +884,22 @@ export default function AdminDashboard({
                         </span>
                       </TableCell>
                       <TableCell>
-                        <span
-                          className={`text-xs px-2 py-1 rounded-full font-medium capitalize ${STATUS_COLORS[ride.status]}`}
-                        >
-                          {ride.status.replace("_", " ")}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span
+                            className={`text-xs px-2 py-1 rounded-full font-medium capitalize ${STATUS_COLORS[ride.status]}`}
+                          >
+                            {ride.status.replace("_", " ")}
+                          </span>
+                          {ride.status === "cancelled" &&
+                            (ride as any).cancelledBy === "driver" && (
+                              <span className="text-[10px] text-destructive font-medium">
+                                Cancelled by Driver
+                                {(ride as any).cancellationReason
+                                  ? `: ${(ride as any).cancellationReason}`
+                                  : ""}
+                              </span>
+                            )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {new Date(ride.createdAt).toLocaleDateString()}
@@ -1119,6 +1312,135 @@ export default function AdminDashboard({
           </div>
         )}
 
+        {page === "payments" && (
+          <div className="p-6 space-y-6">
+            <div>
+              <h2 className="text-xl font-bold text-foreground">
+                V Coin Payments
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                {paymentRequests.filter((r) => r.status === "pending").length}{" "}
+                pending request(s)
+              </p>
+            </div>
+            {paymentRequests.length === 0 ? (
+              <div
+                data-ocid="admin.payments.empty_state"
+                className="text-center py-16 text-muted-foreground"
+              >
+                <Wallet className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
+                <p className="text-sm">No payment requests yet.</p>
+              </div>
+            ) : (
+              <Card className="border-border shadow-sm overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Date</TableHead>
+                      <TableHead className="text-xs">User</TableHead>
+                      <TableHead className="text-xs">Role</TableHead>
+                      <TableHead className="text-xs">Amount (₹)</TableHead>
+                      <TableHead className="text-xs">UTR/Ref</TableHead>
+                      <TableHead className="text-xs">Mode</TableHead>
+                      <TableHead className="text-xs">Status</TableHead>
+                      <TableHead className="text-xs">V Coins</TableHead>
+                      <TableHead className="text-xs">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paymentRequests.map((pr, idx) => (
+                      <TableRow
+                        key={pr.id}
+                        data-ocid={`admin.payments.row.${idx + 1}`}
+                      >
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                          {new Date(pr.createdAt).toLocaleDateString("en-IN")}
+                        </TableCell>
+                        <TableCell className="text-sm font-medium">
+                          {pr.userName}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className="capitalize text-xs"
+                          >
+                            {pr.userRole}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm font-semibold">
+                          ₹{pr.amountPaid}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-28 truncate">
+                          {pr.utrOrRef}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {pr.paymentMode}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${pr.status === "approved" ? "bg-green-100 text-green-800" : pr.status === "rejected" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"}`}
+                          >
+                            {pr.status}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-sm font-semibold text-primary">
+                          {pr.vCoinsAllocated != null
+                            ? `${pr.vCoinsAllocated} VC`
+                            : "—"}
+                        </TableCell>
+                        <TableCell>
+                          {pr.status === "pending" ? (
+                            <div className="flex gap-1">
+                              <Button
+                                data-ocid={`admin.payments.approve_button.${idx + 1}`}
+                                size="sm"
+                                className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"
+                                onClick={() => {
+                                  setApproveDialogId(pr.id);
+                                  setApproveVCoins(
+                                    String(
+                                      Math.round(
+                                        pr.amountPaid /
+                                          (rateConfig.vCoinRate || 5),
+                                      ),
+                                    ),
+                                  );
+                                }}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                data-ocid={`admin.payments.reject_button.${idx + 1}`}
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  setRejectDialogId(pr.id);
+                                  setRejectNote("");
+                                }}
+                              >
+                                Reject
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {pr.processedAt
+                                ? new Date(pr.processedAt).toLocaleDateString(
+                                    "en-IN",
+                                  )
+                                : "—"}
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+            )}
+          </div>
+        )}
+
         <footer className="text-center text-xs text-muted-foreground py-4 border-t border-border mx-6">
           © {new Date().getFullYear()}. Built with love using{" "}
           <a
@@ -1200,6 +1522,53 @@ export default function AdminDashboard({
                 onChange={(e) => setNewUserPassword(e.target.value)}
               />
             </div>
+            {newUserRole === "driver" && (
+              <>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">Vehicle Type</Label>
+                  <Select
+                    value={newUserVehicleType}
+                    onValueChange={setNewUserVehicleType}
+                  >
+                    <SelectTrigger data-ocid="admin.add_user.vehicle_type.select">
+                      <SelectValue placeholder="Select vehicle type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[
+                        "Bike",
+                        "Auto",
+                        "Cab",
+                        "Cab A/c",
+                        "Sedan",
+                        "Premium XL",
+                      ].map((vt) => (
+                        <SelectItem key={vt} value={vt}>
+                          {vt}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">Vehicle Number</Label>
+                  <Input
+                    data-ocid="admin.add_user.vehicle_number.input"
+                    placeholder="e.g. MH-01-AB-1234"
+                    value={newUserVehicleNumber}
+                    onChange={(e) => setNewUserVehicleNumber(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">Vehicle Model</Label>
+                  <Input
+                    data-ocid="admin.add_user.vehicle_model.input"
+                    placeholder="e.g. Honda Activa, Maruti Swift"
+                    value={newUserVehicleModel}
+                    onChange={(e) => setNewUserVehicleModel(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <Button
@@ -1215,6 +1584,127 @@ export default function AdminDashboard({
               className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               Add User
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Approve Payment Dialog */}
+      <Dialog
+        open={!!approveDialogId}
+        onOpenChange={() => setApproveDialogId(null)}
+      >
+        <DialogContent
+          data-ocid="admin.approve_payment.dialog"
+          className="sm:max-w-sm"
+        >
+          <DialogHeader>
+            <DialogTitle>Approve V Coin Recharge</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Confirm V Coins to allocate to this user.
+            </p>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="admin-approve-vcoins"
+                className="text-sm font-medium"
+              >
+                V Coins to Allocate
+              </label>
+              <Input
+                id="admin-approve-vcoins"
+                data-ocid="admin.approve_payment.vcoins.input"
+                type="number"
+                min="1"
+                value={approveVCoins}
+                onChange={(e) => setApproveVCoins(e.target.value)}
+                placeholder="Enter V Coins"
+              />
+              {approveVCoins && Number(approveVCoins) > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  = ₹{Number(approveVCoins) * (rateConfig.vCoinRate || 5)}{" "}
+                  equivalent
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              data-ocid="admin.approve_payment.cancel_button"
+              variant="outline"
+              onClick={() => setApproveDialogId(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              data-ocid="admin.approve_payment.confirm_button"
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={() => {
+                if (
+                  approveDialogId &&
+                  approveVCoins &&
+                  Number(approveVCoins) > 0
+                ) {
+                  onApprovePayment?.(approveDialogId, Number(approveVCoins));
+                  toast.success(
+                    `Approved! ${approveVCoins} V Coins allocated.`,
+                  );
+                  setApproveDialogId(null);
+                  setApproveVCoins("");
+                }
+              }}
+            >
+              Confirm Approval
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Payment Dialog */}
+      <Dialog
+        open={!!rejectDialogId}
+        onOpenChange={() => setRejectDialogId(null)}
+      >
+        <DialogContent
+          data-ocid="admin.reject_payment.dialog"
+          className="sm:max-w-sm"
+        >
+          <DialogHeader>
+            <DialogTitle>Reject Payment Request</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Optionally add a reason for rejection.
+            </p>
+            <Input
+              data-ocid="admin.reject_payment.note.input"
+              placeholder="Reason (optional)"
+              value={rejectNote}
+              onChange={(e) => setRejectNote(e.target.value)}
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              data-ocid="admin.reject_payment.cancel_button"
+              variant="outline"
+              onClick={() => setRejectDialogId(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              data-ocid="admin.reject_payment.confirm_button"
+              variant="destructive"
+              onClick={() => {
+                if (rejectDialogId) {
+                  onRejectPayment?.(rejectDialogId, rejectNote);
+                  toast.success("Payment request rejected.");
+                  setRejectDialogId(null);
+                  setRejectNote("");
+                }
+              }}
+            >
+              Confirm Rejection
             </Button>
           </DialogFooter>
         </DialogContent>

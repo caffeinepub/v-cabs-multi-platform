@@ -31,6 +31,7 @@ export interface User {
   documents?: UserDocuments;
   vehicleType?: string;
   vehicleNumber?: string;
+  vehicleModel?: string;
   deletedAt?: string; // soft-delete timestamp
 }
 
@@ -49,6 +50,9 @@ export interface Ride {
   destLat?: number;
   destLng?: number;
   distanceKm?: number;
+  rideType?: string;
+  cancelledBy?: "driver" | "rider" | "admin";
+  cancellationReason?: string;
 }
 
 export interface AuditLog {
@@ -101,6 +105,21 @@ export interface RateConfig {
   vCoinRate: number;
 }
 
+export interface PaymentRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: "rider" | "driver";
+  amountPaid: number; // INR amount paid to admin
+  utrOrRef: string; // UTR/reference number
+  paymentMode: string; // UPI, Cash, etc.
+  status: "pending" | "approved" | "rejected";
+  vCoinsAllocated?: number;
+  createdAt: string;
+  processedAt?: string;
+  note?: string;
+}
+
 export interface AppState {
   users: User[];
   rides: Ride[];
@@ -108,4 +127,5 @@ export interface AppState {
   currentUser: User | null;
   sosEvents: SOSEvent[];
   savedLocations: SavedLocation[];
+  paymentRequests: PaymentRequest[];
 }
